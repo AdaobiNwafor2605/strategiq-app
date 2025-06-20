@@ -390,102 +390,91 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
       </div>
 
       {/* AI Insights */}
-      <Card>
+      <Card className="relative overflow-hidden">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold text-slate-900 flex items-center">
                 <Brain className="w-5 h-5 mr-2 text-purple-600" />
                 AI-Powered Insights
-                {hasLimitedAI && (
-                  <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">
-                    {isStarterPlan ? 'Limited (2/10 monthly)' : 'Limited (1/5 monthly)'}
-                  </span>
-                )}
               </h3>
               <p className="text-sm text-slate-600">
-                {hasLimitedAI 
-                  ? 'Actionable recommendations based on your data. Upgrade for unlimited insights.'
-                  : 'Actionable recommendations based on your data'
-                }
+                Actionable recommendations based on your data
               </p>
-            </div>
-            <div className="flex space-x-2">
-              {hasLimitedAI && (
-                <Button variant="outline" size="sm">
-                  Upgrade Plan
-                </Button>
-              )}
-              <Button variant="outline" size="sm">View All</Button>
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative">
+          {/* Sample insights that are always visible */}
           <div className="space-y-4">
-            {availableInsights.map((insight, index) => (
-              <div key={index} className="flex items-start space-x-4 p-4 bg-slate-50 rounded-lg">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                  insight.priority === 'high' 
-                    ? 'bg-red-100' 
-                    : insight.priority === 'medium' 
-                    ? 'bg-yellow-100' 
-                    : 'bg-green-100'
-                }`}>
-                  {insight.type === 'recommendation' ? (
-                    <Target className={`w-4 h-4 ${
-                      insight.priority === 'high' ? 'text-red-600' : 'text-yellow-600'
-                    }`} />
-                  ) : insight.type === 'action' ? (
-                    <AlertTriangle className={`w-4 h-4 ${
-                      insight.priority === 'high' ? 'text-red-600' : 'text-yellow-600'
-                    }`} />
-                  ) : (
-                    <BarChart3 className="w-4 h-4 text-green-600" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <h4 className="font-medium text-slate-900">{insight.title}</h4>
-                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                      insight.priority === 'high' 
-                        ? 'bg-red-100 text-red-700' 
-                        : insight.priority === 'medium' 
-                        ? 'bg-yellow-100 text-yellow-700' 
-                        : 'bg-green-100 text-green-700'
-                    }`}>
-                      {insight.priority}
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-600 mb-2">{insight.description}</p>
-                  <p className="text-sm font-medium text-green-600">{insight.impact}</p>
-                </div>
+            {/* Sample Insight 1 */}
+            <div className="flex items-start space-x-4 p-4 bg-slate-50 rounded-lg">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-red-100">
+                <AlertTriangle className="w-4 h-4 text-red-600" />
               </div>
-            ))}
-            
-            {/* Locked insights for limited plans */}
-            {hasLimitedAI && mockInsights.filter(insight => insight.requiresPro).slice(0, 2).map((insight, index) => (
-              <div key={`locked-${index}`} className="flex items-start space-x-4 p-4 bg-slate-100 rounded-lg opacity-60 relative">
-                <div className="absolute inset-0 bg-slate-200 bg-opacity-50 rounded-lg flex items-center justify-center">
-                  <div className="bg-white rounded-lg p-3 shadow-sm flex items-center space-x-2">
-                    <Lock className="w-4 h-4 text-slate-600" />
-                    <span className="text-sm font-medium text-slate-700">Upgrade to unlock</span>
-                  </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1">
+                  <h4 className="font-medium text-slate-900">High Churn Risk Detected</h4>
+                  <span className="text-xs px-2 py-1 rounded-full font-medium bg-red-100 text-red-700">
+                    high
+                  </span>
                 </div>
-                <div className="w-8 h-8 bg-slate-300 rounded-lg flex items-center justify-center">
-                  <Brain className="w-4 h-4 text-slate-500" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <h4 className="font-medium text-slate-500">Advanced AI Insight</h4>
-                    <span className="text-xs px-2 py-1 rounded-full font-medium bg-slate-200 text-slate-500">
-                      Pro
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-500 mb-2">Unlock advanced AI recommendations with Professional plan</p>
-                  <p className="text-sm font-medium text-slate-500">Potential high impact</p>
-                </div>
+                <p className="text-sm text-slate-600 mb-2">57 customers haven't purchased in 60+ days. Consider targeted re-engagement campaigns.</p>
+                <p className="text-sm font-medium text-green-600">Potential revenue recovery: £2,250</p>
               </div>
-            ))}
+            </div>
+
+            {/* Sample Insight 2 */}
+            <div className="flex items-start space-x-4 p-4 bg-slate-50 rounded-lg">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-yellow-100">
+                <Target className="w-4 h-4 text-yellow-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1">
+                  <h4 className="font-medium text-slate-900">Upsell Opportunity</h4>
+                  <span className="text-xs px-2 py-1 rounded-full font-medium bg-yellow-100 text-yellow-700">
+                    medium
+                  </span>
+                </div>
+                <p className="text-sm text-slate-600 mb-2">Champions segment shows 40% higher purchase frequency. Target similar products to Loyal Customers.</p>
+                <p className="text-sm font-medium text-green-600">Estimated revenue increase: £4,500</p>
+              </div>
+            </div>
+
+            {/* Sample Insight 3 */}
+            <div className="flex items-start space-x-4 p-4 bg-slate-50 rounded-lg">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-green-100">
+                <BarChart3 className="w-4 h-4 text-green-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1">
+                  <h4 className="font-medium text-slate-900">Seasonal Trend Identified</h4>
+                  <span className="text-xs px-2 py-1 rounded-full font-medium bg-green-100 text-green-700">
+                    low
+                  </span>
+                </div>
+                <p className="text-sm text-slate-600 mb-2">Revenue peaks detected in Q4. Prepare inventory and marketing campaigns 2 months early.</p>
+                <p className="text-sm font-medium text-green-600">Optimize for 25% revenue boost</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Overlay for upgrade prompt */}
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/80 to-white/95 flex items-center justify-center">
+            <div className="text-center p-8 max-w-md">
+              <div className="w-16 h-16 mx-auto mb-4 bg-slate-200 rounded-full flex items-center justify-center">
+                <Lock className="w-8 h-8 text-slate-500" />
+              </div>
+              <h3 className="text-xl font-semibold text-slate-700 mb-2">
+                Starter Membership required to unlock these insights
+              </h3>
+              <p className="text-slate-600 mb-6">
+                Get AI-powered recommendations to grow your business
+              </p>
+              <Button className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2">
+                Upgrade Plan
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
