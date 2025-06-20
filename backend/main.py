@@ -208,6 +208,7 @@ async def process_files(files: List[UploadFile] = File(...)):
         
         # Store the combined data in file_processor for analytics endpoints
         file_processor.sales_data = combined
+        logger.info(f"Stored combined data in file_processor.sales_data with shape: {combined.shape}")
         
         # Generate analytics using the analytics service
         analytics = AnalyticsService(combined)
@@ -703,4 +704,146 @@ async def get_revenue_per_customer():
         }
         
     except Exception as e:
-        return {"error": str(e), "data": [], "available_columns": list(df.columns) if 'df' in locals() else []} 
+        return {"error": str(e), "data": [], "available_columns": list(df.columns) if 'df' in locals() else []}
+
+
+@app.get("/api/analytics/data-insights-check")
+async def check_data_insights_availability():
+    """Check if your data supports repeat purchase behavior and basket trends analysis"""
+    try:
+        if file_processor.sales_data is None:
+            return {
+                "error": "No sales data available",
+                "message": "Please upload your data files first to see what advanced features are available.",
+                "overall_recommendation": "📊 UPLOAD DATA: Upload your sales data to check available features",
+                "features_available_count": 0,
+                "repeat_purchase_analysis": {
+                    "feature_name": "🔒 Repeat Purchase Behavior",
+                    "available": False,
+                    "recommendation": "Upload data to check availability"
+                },
+                "basket_trends_analysis": {
+                    "feature_name": "🔒 Basket Trends",
+                    "available": False,
+                    "recommendation": "Upload data to check availability"
+                },
+                "data_overview": {
+                    "total_rows": 0,
+                    "columns_available": [],
+                    "unique_customers": 0,
+                    "unique_orders": 0,
+                    "unique_products": 0
+                }
+            }
+        
+        df = file_processor.sales_data
+        columns = list(df.columns)
+        
+        analysis_results = {
+            "data_overview": {
+                "total_rows": len(df),
+                "columns_available": columns,
+                "unique_customers": df['customer_email'].nunique() if 'customer_email' in columns else 0,
+                "unique_orders": df['order_id'].nunique() if 'order_id' in columns else 0,
+                "unique_products": df['product_name'].nunique() if 'product_name' in columns else 0
+            }
+        }
+        
+        # Check REPEAT PURCHASE BEHAVIOR requirements
+        repeat_analysis = {
+            "feature_name": "🔒 Repeat Purchase Behavior",
+            "available": False,
+            "requirements_met": {},
+            "data_quality": {},
+            "recommendation": ""
+        }
+        
+        # Check required columns for repeat purchase
+        repeat_required = ["customer_email", "order_date", "order_id"]
+        repeat_missing = [col for col in repeat_required if col not in columns]
+        
+        if not repeat_missing:
+            # All columns present, check data quality
+            repeat_analysis["requirements_met"]["has_required_columns"] = True
+            
+            # Check if customers have multiple orders
+            customer_order_counts = df.groupby('customer_email')['order_id'].nunique()
+            repeat_customers = int((customer_order_counts > 1).sum())
+            total_customers = len(customer_order_counts)
+            avg_orders_per_customer = float(customer_order_counts.mean())
+            
+            repeat_analysis["data_quality"] = {
+                "total_customers": total_customers,
+                "customers_with_repeat_orders": repeat_customers,
+                "repeat_customer_percentage": round(repeat_customers / total_customers * 100, 1) if total_customers > 0 else 0,
+                "avg_orders_per_customer": round(avg_orders_per_customer, 2)
+            }
+            
+            if int(repeat_customers) >= 5:  # Need at least 5 repeat customers for meaningful analysis
+                repeat_analysis["available"] = True
+                repeat_analysis["recommendation"] = f"✅ EXCELLENT! You have {repeat_customers} customers with multiple orders ({repeat_customers/total_customers*100:.1f}%). Perfect for repeat purchase analysis!"
+            else:
+                repeat_analysis["recommendation"] = f"⚠️ LIMITED: Only {repeat_customers} customers have multiple orders. Analysis possible but insights will be limited."
+        else:
+            repeat_analysis["requirements_met"]["missing_columns"] = repeat_missing
+            repeat_analysis["recommendation"] = f"❌ MISSING: Need columns {repeat_missing} for repeat purchase analysis."
+        
+        # Check BASKET TRENDS (Market Basket Analysis) requirements
+        basket_analysis = {
+            "feature_name": "🔒 Basket Trends",
+            "available": False,
+            "requirements_met": {},
+            "data_quality": {},
+            "recommendation": ""
+        }
+        
+        # Check required columns for basket analysis
+        basket_required = ["order_id", "product_name"]
+        basket_missing = [col for col in basket_required if col not in columns]
+        
+        if not basket_missing:
+            # All columns present, check data quality
+            basket_analysis["requirements_met"]["has_required_columns"] = True
+            
+            # Check orders with multiple products
+            order_product_counts = df.groupby('order_id').size()
+            multi_product_orders = int((order_product_counts > 1).sum())
+            total_orders = len(order_product_counts)
+            avg_products_per_order = float(order_product_counts.mean())
+            
+            basket_analysis["data_quality"] = {
+                "total_orders": total_orders,
+                "orders_with_multiple_products": multi_product_orders,
+                "multi_product_percentage": round(multi_product_orders / total_orders * 100, 1) if total_orders > 0 else 0,
+                "avg_products_per_order": round(avg_products_per_order, 2)
+            }
+            
+            if int(multi_product_orders) >= 10:  # Need at least 10 multi-product orders
+                basket_analysis["available"] = True
+                basket_analysis["recommendation"] = f"✅ EXCELLENT! You have {multi_product_orders} orders with multiple products ({multi_product_orders/total_orders*100:.1f}%). Perfect for basket analysis!"
+            else:
+                basket_analysis["recommendation"] = f"⚠️ LIMITED: Only {multi_product_orders} orders have multiple products. Analysis possible but few bundle opportunities will be found."
+        else:
+            basket_analysis["requirements_met"]["missing_columns"] = basket_missing
+            basket_analysis["recommendation"] = f"❌ MISSING: Need columns {basket_missing} for basket trends analysis."
+        
+        # Overall recommendation
+        features_available = sum([repeat_analysis["available"], basket_analysis["available"]])
+        
+        if features_available == 2:
+            overall_recommendation = "🎉 PERFECT! Your data supports BOTH advanced features. You can unlock deeper customer insights!"
+        elif features_available == 1:
+            overall_recommendation = "👍 GOOD! Your data supports 1 advanced feature. Some deeper insights available."
+        else:
+            overall_recommendation = "📊 BASIC: Your data supports overview analytics only. Advanced features need more data structure."
+        
+        return {
+            "overall_recommendation": overall_recommendation,
+            "features_available_count": features_available,
+            "repeat_purchase_analysis": repeat_analysis,
+            "basket_trends_analysis": basket_analysis,
+            "data_overview": analysis_results["data_overview"]
+        }
+        
+    except Exception as e:
+        return {"error": str(e)} 

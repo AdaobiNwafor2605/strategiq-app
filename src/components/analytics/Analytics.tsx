@@ -29,6 +29,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ data }) => {
   const [orderVolumeData, setOrderVolumeData] = useState<OrderVolumeResponse | null>(null);
   const [revenuePerCustomerData, setRevenuePerCustomerData] = useState<RevenuePerCustomerResponse | null>(null);
   const [revenueTrendsData, setRevenueTrendsData] = useState<RevenueTrendsResponse | null>(null);
+  const [dataInsights, setDataInsights] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
   const fetchAnalyticsData = async () => {
@@ -41,20 +42,22 @@ export const Analytics: React.FC<AnalyticsProps> = ({ data }) => {
         fetch(`/api/analytics/geographic-analysis`),
         fetch(`/api/analytics/order-volume-trends?period=${selectedPeriod}`),
         fetch(`/api/analytics/revenue-per-customer`),
-        fetch(`/api/analytics/revenue-trends?period=${selectedPeriod}`)
+        fetch(`/api/analytics/revenue-trends?period=${selectedPeriod}`),
+        fetch(`/api/analytics/data-insights-check`)
       ];
 
       const [
         topProductsRes, aovTrendsRes, customerAnalysisRes, 
-        geographicRes, orderVolumeRes, revenuePerCustomerRes, revenueTrendsRes
+        geographicRes, orderVolumeRes, revenuePerCustomerRes, revenueTrendsRes, dataInsightsRes
       ] = await Promise.all(endpoints);
 
       const [
         topProducts, aovTrends, customerAnalysis,
-        geographic, orderVolume, revenuePerCustomer, revenueTrends
+        geographic, orderVolume, revenuePerCustomer, revenueTrends, dataInsightsData
       ] = await Promise.all([
         topProductsRes.json(), aovTrendsRes.json(), customerAnalysisRes.json(),
-        geographicRes.json(), orderVolumeRes.json(), revenuePerCustomerRes.json(), revenueTrendsRes.json()
+        geographicRes.json(), orderVolumeRes.json(), revenuePerCustomerRes.json(), 
+        revenueTrendsRes.json(), dataInsightsRes.json()
       ]);
 
       setTopProductsData(topProducts.error ? null : topProducts);
@@ -64,6 +67,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ data }) => {
       setOrderVolumeData(orderVolume.error ? null : orderVolume);
       setRevenuePerCustomerData(revenuePerCustomer.error ? null : revenuePerCustomer);
       setRevenueTrendsData(revenueTrends.error ? null : revenueTrends);
+      setDataInsights(dataInsightsData.error ? null : dataInsightsData);
     } catch (error) {
       console.error('Error fetching analytics data:', error);
     } finally {
@@ -431,6 +435,148 @@ export const Analytics: React.FC<AnalyticsProps> = ({ data }) => {
           )}
         </CardContent>
       </Card>
+
+      {/* Data Insights Check */}
+      {dataInsights && (
+        <Card>
+          <CardHeader>
+            <h3 className="text-lg font-semibold text-slate-900 flex items-center">
+              <Brain className="w-5 h-5 mr-2 text-purple-600" />
+              Premium Features Availability
+            </h3>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {/* Overall Status */}
+              <div className="bg-gradient-to-r from-purple-50 to-blue-50 p-4 rounded-lg border">
+                <p className="text-lg font-medium text-slate-900 mb-2">
+                  {dataInsights.overall_recommendation}
+                </p>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-slate-600">Features Available:</span>
+                  <span className="font-semibold text-purple-600">
+                    {dataInsights.features_available_count} of 2
+                  </span>
+                </div>
+              </div>
+
+              {/* Feature Details */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Repeat Purchase Analysis */}
+                <div className="border rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-medium text-slate-900">
+                      {dataInsights.repeat_purchase_analysis.feature_name}
+                    </h4>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      dataInsights.repeat_purchase_analysis.available 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {dataInsights.repeat_purchase_analysis.available ? 'Available' : 'Limited'}
+                    </span>
+                  </div>
+                  
+                  <p className="text-sm text-slate-600 mb-3">
+                    {dataInsights.repeat_purchase_analysis.recommendation}
+                  </p>
+
+                  {dataInsights.repeat_purchase_analysis.data_quality && (
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-600">Total Customers:</span>
+                        <span className="font-medium">
+                          {dataInsights.repeat_purchase_analysis.data_quality.total_customers?.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-600">Repeat Customers:</span>
+                        <span className="font-medium">
+                          {dataInsights.repeat_purchase_analysis.data_quality.customers_with_repeat_orders} 
+                          ({dataInsights.repeat_purchase_analysis.data_quality.repeat_customer_percentage}%)
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-600">Avg Orders per Customer:</span>
+                        <span className="font-medium">
+                          {dataInsights.repeat_purchase_analysis.data_quality.avg_orders_per_customer}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Basket Trends Analysis */}
+                <div className="border rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-medium text-slate-900">
+                      {dataInsights.basket_trends_analysis.feature_name}
+                    </h4>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      dataInsights.basket_trends_analysis.available 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {dataInsights.basket_trends_analysis.available ? 'Available' : 'Limited'}
+                    </span>
+                  </div>
+                  
+                  <p className="text-sm text-slate-600 mb-3">
+                    {dataInsights.basket_trends_analysis.recommendation}
+                  </p>
+
+                  {dataInsights.basket_trends_analysis.data_quality && (
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-600">Total Orders:</span>
+                        <span className="font-medium">
+                          {dataInsights.basket_trends_analysis.data_quality.total_orders?.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-600">Multi-Product Orders:</span>
+                        <span className="font-medium">
+                          {dataInsights.basket_trends_analysis.data_quality.orders_with_multiple_products} 
+                          ({dataInsights.basket_trends_analysis.data_quality.multi_product_percentage}%)
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-600">Avg Products per Order:</span>
+                        <span className="font-medium">
+                          {dataInsights.basket_trends_analysis.data_quality.avg_products_per_order}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Data Overview */}
+              <div className="bg-slate-50 p-4 rounded-lg">
+                <h4 className="font-medium text-slate-900 mb-2">Your Data Overview</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <span className="text-slate-600">Total Rows:</span>
+                    <p className="font-medium">{dataInsights.data_overview.total_rows?.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <span className="text-slate-600">Unique Customers:</span>
+                    <p className="font-medium">{dataInsights.data_overview.unique_customers?.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <span className="text-slate-600">Unique Orders:</span>
+                    <p className="font-medium">{dataInsights.data_overview.unique_orders?.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <span className="text-slate-600">Unique Products:</span>
+                    <p className="font-medium">{dataInsights.data_overview.unique_products?.toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }; 
