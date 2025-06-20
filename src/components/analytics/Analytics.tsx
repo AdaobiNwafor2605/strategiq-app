@@ -1,48 +1,114 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   BarChart3, ShoppingBag, RefreshCcw, Users, AlertTriangle, 
   TrendingUp, Brain, Package, ShoppingCart, UserCheck, 
-  Calendar, Target, Zap 
+  Calendar, Target, Zap, MapPin, DollarSign, TrendingDown,
+  ArrowUp, ArrowDown, Activity, Star, Globe
 } from 'lucide-react';
 import { Card, CardHeader, CardContent } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
-  ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell 
+  ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell,
+  Area, AreaChart, ComposedChart
 } from 'recharts';
-import { AnalyticsProps } from '../../types';
+import { 
+  AnalyticsProps, TopProductsResponse, AOVTrendsResponse, 
+  CustomerAnalysisResponse, GeographicResponse, OrderVolumeResponse,
+  RevenuePerCustomerResponse, RevenueTrendsResponse
+} from '../../types';
 
-// Mock data for top products
-const mockTopProducts = [
-  { name: 'Designer Handbag X', revenue: 45000, units: 150, category: 'Accessories' },
-  { name: 'Summer Dress Y', revenue: 38000, units: 280, category: 'Dresses' },
-  { name: 'Premium Shoes Z', revenue: 32000, units: 120, category: 'Footwear' },
-];
-
-// Mock data for market basket
-const mockMarketBasket = [
-  { combination: ['Designer Handbag X', 'Silk Scarf A'], confidence: 0.85, lift: 2.3 },
-  { combination: ['Summer Dress Y', 'Sandals B'], confidence: 0.75, lift: 1.8 },
-];
-
-// Mock data for repeat purchase
-const mockRepeatPurchase = [
-  { period: '0-30 days', count: 450 },
-  { period: '31-60 days', count: 320 },
-  { period: '61-90 days', count: 180 },
-];
-
-// Mock data for customer segments
-const mockCustomerSegments = [
-  { segment: 'High Value', count: 1200, avgSpend: 850, color: '#8b5cf6' },
-  { segment: 'Regular', count: 2800, avgSpend: 450, color: '#10b981' },
-  { segment: 'New', count: 1800, avgSpend: 250, color: '#f59e0b' },
-  { segment: 'At Risk', count: 800, avgSpend: 150, color: '#f97316' },
-];
+const COLORS = ['#8b5cf6', '#10b981', '#f59e0b', '#f97316', '#ef4444', '#3b82f6', '#8b5cf6'];
 
 export const Analytics: React.FC<AnalyticsProps> = ({ data }) => {
+  const [selectedPeriod, setSelectedPeriod] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
+  const [topProductsData, setTopProductsData] = useState<TopProductsResponse | null>(null);
+  const [aovTrendsData, setAovTrendsData] = useState<AOVTrendsResponse | null>(null);
+  const [customerAnalysisData, setCustomerAnalysisData] = useState<CustomerAnalysisResponse | null>(null);
+  const [geographicData, setGeographicData] = useState<GeographicResponse | null>(null);
+  const [orderVolumeData, setOrderVolumeData] = useState<OrderVolumeResponse | null>(null);
+  const [revenuePerCustomerData, setRevenuePerCustomerData] = useState<RevenuePerCustomerResponse | null>(null);
+  const [revenueTrendsData, setRevenueTrendsData] = useState<RevenueTrendsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const fetchAnalyticsData = async () => {
+    setLoading(true);
+    try {
+      const endpoints = [
+        fetch(`/api/analytics/top-products?limit=10&sort_by=revenue`),
+        fetch(`/api/analytics/aov-trends?period=${selectedPeriod}`),
+        fetch(`/api/analytics/customer-analysis`),
+        fetch(`/api/analytics/geographic-analysis`),
+        fetch(`/api/analytics/order-volume-trends?period=${selectedPeriod}`),
+        fetch(`/api/analytics/revenue-per-customer`),
+        fetch(`/api/analytics/revenue-trends?period=${selectedPeriod}`)
+      ];
+
+      const [
+        topProductsRes, aovTrendsRes, customerAnalysisRes, 
+        geographicRes, orderVolumeRes, revenuePerCustomerRes, revenueTrendsRes
+      ] = await Promise.all(endpoints);
+
+      const [
+        topProducts, aovTrends, customerAnalysis,
+        geographic, orderVolume, revenuePerCustomer, revenueTrends
+      ] = await Promise.all([
+        topProductsRes.json(), aovTrendsRes.json(), customerAnalysisRes.json(),
+        geographicRes.json(), orderVolumeRes.json(), revenuePerCustomerRes.json(), revenueTrendsRes.json()
+      ]);
+
+      setTopProductsData(topProducts.error ? null : topProducts);
+      setAovTrendsData(aovTrends.error ? null : aovTrends);
+      setCustomerAnalysisData(customerAnalysis.error ? null : customerAnalysis);
+      setGeographicData(geographic.error ? null : geographic);
+      setOrderVolumeData(orderVolume.error ? null : orderVolume);
+      setRevenuePerCustomerData(revenuePerCustomer.error ? null : revenuePerCustomer);
+      setRevenueTrendsData(revenueTrends.error ? null : revenueTrends);
+    } catch (error) {
+      console.error('Error fetching analytics data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAnalyticsData();
+  }, [selectedPeriod]);
+
+  const formatCurrency = (value: number) => `£${value.toLocaleString()}`;
+  const formatPercent = (value: number) => `${value.toFixed(1)}%`;
+
   return (
     <div className="p-6 space-y-6 bg-slate-50 min-h-screen">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Advanced Analytics</h1>
+          <p className="text-slate-600">Comprehensive insights from your uploaded data</p>
+        </div>
+        <div className="flex items-center space-x-4">
+          <div className="flex bg-white rounded-lg p-1 shadow-sm">
+            {(['daily', 'weekly', 'monthly'] as const).map((period) => (
+              <button
+                key={period}
+                onClick={() => setSelectedPeriod(period)}
+                className={`px-3 py-1 rounded-md text-sm font-medium capitalize transition-colors ${
+                  selectedPeriod === period
+                    ? 'bg-purple-100 text-purple-700'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {period}
+              </button>
+            ))}
+          </div>
+          <Button onClick={fetchAnalyticsData} disabled={loading}>
+            <RefreshCcw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card>
@@ -51,11 +117,11 @@ export const Analytics: React.FC<AnalyticsProps> = ({ data }) => {
               <div>
                 <p className="text-sm text-slate-600">Total Revenue</p>
                 <h3 className="text-2xl font-semibold text-slate-900">
-                  £{data.total_revenue.toLocaleString()}
+                  {formatCurrency(data.total_revenue)}
                 </h3>
               </div>
               <div className="w-12 h-12 bg-purple-50 rounded-full flex items-center justify-center">
-                <ShoppingBag className="w-6 h-6 text-purple-600" />
+                <DollarSign className="w-6 h-6 text-purple-600" />
               </div>
             </div>
           </CardContent>
@@ -83,7 +149,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ data }) => {
               <div>
                 <p className="text-sm text-slate-600">Average Order Value</p>
                 <h3 className="text-2xl font-semibold text-slate-900">
-                  £{data.average_order_value.toLocaleString()}
+                  {formatCurrency(data.average_order_value)}
                 </h3>
               </div>
               <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center">
@@ -99,7 +165,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ data }) => {
               <div>
                 <p className="text-sm text-slate-600">Churn Risk</p>
                 <h3 className="text-2xl font-semibold text-slate-900">
-                  {data.churn_risk}%
+                  {formatPercent(data.churn_risk)}
                 </h3>
               </div>
               <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center">
@@ -110,263 +176,261 @@ export const Analytics: React.FC<AnalyticsProps> = ({ data }) => {
         </Card>
       </div>
 
-      {/* Customer Segments */}
+      {/* Revenue Over Time */}
       <Card>
         <CardHeader>
           <h3 className="text-lg font-semibold text-slate-900 flex items-center">
-            <Users className="w-5 h-5 mr-2 text-purple-600" />
-            Customer Segments
+            <TrendingUp className="w-5 h-5 mr-2 text-purple-600" />
+            Revenue Over Time
           </h3>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={data.customer_segments}
-                cx="50%"
-                cy="50%"
-                outerRadius={100}
-                fill="#8884d8"
-                dataKey="count"
-                label={({ segment, count }) => `${segment}: ${count}`}
-              >
-                {data.customer_segments.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={getSegmentColor(entry.segment)} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+          {revenueTrendsData?.data ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <ComposedChart data={revenueTrendsData.data}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="period" />
+                <YAxis yAxisId="left" />
+                <YAxis yAxisId="right" orientation="right" />
+                <Tooltip 
+                  formatter={(value, name) => [
+                    name === 'revenue' ? formatCurrency(Number(value)) : value,
+                    name === 'revenue' ? 'Revenue' : 'Orders'
+                  ]}
+                />
+                <Bar yAxisId="right" dataKey="orders" fill="#8b5cf6" name="orders" />
+                <Line yAxisId="left" type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={3} name="revenue" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-64 flex items-center justify-center text-slate-500">
+              {loading ? 'Loading revenue trends...' : 'No revenue data available'}
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Top Products Section */}
+      {/* Top Products & AOV Trends */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Top Products */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 flex items-center">
-                  <ShoppingBag className="w-5 h-5 mr-2 text-purple-600" />
-                  Top Products
-                </h3>
-                <p className="text-sm text-slate-600">Best-selling items by revenue and units</p>
-              </div>
-              <Button variant="outline" size="sm">Export</Button>
-            </div>
+            <h3 className="text-lg font-semibold text-slate-900 flex items-center">
+              <Star className="w-5 h-5 mr-2 text-yellow-600" />
+              Top Products
+            </h3>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {mockTopProducts.map((product, index) => (
-                <div key={index} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-                  <div>
-                    <h4 className="font-medium text-slate-900">{product.name}</h4>
-                    <p className="text-sm text-slate-600">{product.category}</p>
+            {topProductsData?.data ? (
+              <div className="space-y-4">
+                {topProductsData.data.slice(0, 5).map((product, index) => (
+                  <div key={index} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
+                        <span className="text-sm font-medium text-purple-700">#{index + 1}</span>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-slate-900">{product.product_name}</h4>
+                        <p className="text-sm text-slate-600">{product.total_quantity} units sold</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-medium text-slate-900">{formatCurrency(product.total_revenue)}</p>
+                      <p className="text-sm text-slate-600">{formatCurrency(product.avg_unit_price)}/unit</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-medium text-slate-900">£{product.revenue.toLocaleString()}</p>
-                    <p className="text-sm text-slate-600">{product.units} units</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="h-64 flex items-center justify-center text-slate-500">
+                {loading ? 'Loading top products...' : 'No product data available'}
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* Market Basket Insights */}
+        {/* AOV Trends */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 flex items-center">
-                  <ShoppingCart className="w-5 h-5 mr-2 text-blue-600" />
-                  Market Basket Insights
-                </h3>
-                <p className="text-sm text-slate-600">Frequently combined products</p>
-              </div>
-            </div>
+            <h3 className="text-lg font-semibold text-slate-900 flex items-center">
+              <Activity className="w-5 h-5 mr-2 text-green-600" />
+              Average Order Value Trends
+            </h3>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {mockMarketBasket.map((combo, index) => (
-                <div key={index} className="p-4 bg-slate-50 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium text-slate-900">Bundle Opportunity</h4>
-                    <span className="text-sm bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                      {(combo.confidence * 100).toFixed(0)}% confidence
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-600">
-                    {combo.combination.join(' + ')}
-                  </p>
-                </div>
-              ))}
-            </div>
+            {aovTrendsData?.data ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <AreaChart data={aovTrendsData.data}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="period" />
+                  <YAxis />
+                  <Tooltip formatter={(value) => [formatCurrency(Number(value)), 'AOV']} />
+                  <Area type="monotone" dataKey="aov" stroke="#10b981" fill="#10b981" fillOpacity={0.3} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-64 flex items-center justify-center text-slate-500">
+                {loading ? 'Loading AOV trends...' : 'No AOV data available'}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Repeat Purchase and Customer Segments */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <h3 className="text-lg font-semibold text-slate-900 flex items-center">
-              <RefreshCcw className="w-5 h-5 mr-2 text-green-600" />
-              Repeat Purchase Behavior
-            </h3>
-          </CardHeader>
-          <CardContent>
+      {/* Customer Analysis */}
+      <Card>
+        <CardHeader>
+          <h3 className="text-lg font-semibold text-slate-900 flex items-center">
+            <UserCheck className="w-5 h-5 mr-2 text-blue-600" />
+            Returning vs New Customers
+          </h3>
+        </CardHeader>
+        <CardContent>
+          {customerAnalysisData?.data ? (
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={mockRepeatPurchase}>
+              <BarChart data={customerAnalysisData.data}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="period" />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="count" fill="#10b981" />
+                <Bar dataKey="new_customers" stackId="a" fill="#3b82f6" name="New Customers" />
+                <Bar dataKey="returning_customers" stackId="a" fill="#10b981" name="Returning Customers" />
               </BarChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
+          ) : (
+            <div className="h-64 flex items-center justify-center text-slate-500">
+              {loading ? 'Loading customer analysis...' : 'No customer data available'}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader>
-            <h3 className="text-lg font-semibold text-slate-900 flex items-center">
-              <Users className="w-5 h-5 mr-2 text-purple-600" />
-              Customer Segments
-            </h3>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={mockCustomerSegments}
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={100}
-                  fill="#8884d8"
-                  dataKey="count"
-                  label={({ segment, count }) => `${segment}: ${count}`}
-                >
-                  {mockCustomerSegments.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Churn Risk and Campaign Performance */}
+      {/* Geographic Analysis & Order Volume */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Geographic Analysis */}
         <Card>
           <CardHeader>
             <h3 className="text-lg font-semibold text-slate-900 flex items-center">
-              <AlertTriangle className="w-5 h-5 mr-2 text-red-600" />
-              Churn Risk Breakdown
+              <Globe className="w-5 h-5 mr-2 text-indigo-600" />
+              Geographic Distribution
             </h3>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div className="p-4 bg-red-50 rounded-lg">
-                <h4 className="font-medium text-red-900 mb-2">High Risk Segment</h4>
-                <p className="text-sm text-red-700">
-                  320 customers haven't made a purchase in 45+ days
-                </p>
-                <div className="mt-4">
-                  <Button variant="outline" size="sm">View Details</Button>
-                </div>
+            {geographicData?.data ? (
+              <div className="space-y-3">
+                {geographicData.data.slice(0, 8).map((location, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                    <div className="flex items-center space-x-3">
+                      <MapPin className="w-4 h-4 text-indigo-600" />
+                      <span className="font-medium text-slate-900">{location.location}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-medium text-slate-900">{formatCurrency(location.total_revenue)}</p>
+                      <p className="text-sm text-slate-600">{location.unique_customers} customers</p>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="p-4 bg-yellow-50 rounded-lg">
-                <h4 className="font-medium text-yellow-900 mb-2">Medium Risk Segment</h4>
-                <p className="text-sm text-yellow-700">
-                  580 customers showing decreased engagement
-                </p>
+            ) : (
+              <div className="h-64 flex items-center justify-center text-slate-500">
+                {loading ? 'Loading geographic data...' : 'No location data available'}
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
 
+        {/* Order Volume Trends */}
         <Card>
           <CardHeader>
             <h3 className="text-lg font-semibold text-slate-900 flex items-center">
-              <Target className="w-5 h-5 mr-2 text-indigo-600" />
-              Campaign Performance
+              <Package className="w-5 h-5 mr-2 text-orange-600" />
+              Order Volume Trends
             </h3>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div className="p-4 bg-slate-50 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-medium text-slate-900">Summer Sale Campaign</h4>
-                  <span className="text-sm bg-green-100 text-green-700 px-2 py-1 rounded-full">
-                    +24% lift
-                  </span>
-                </div>
-                <p className="text-sm text-slate-600">
-                  Average order value increased from £89 to £110
-                </p>
+            {orderVolumeData?.data ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={orderVolumeData.data}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="period" />
+                  <YAxis />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="order_count" stroke="#f59e0b" strokeWidth={3} name="Orders" />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-64 flex items-center justify-center text-slate-500">
+                {loading ? 'Loading order volume...' : 'No order volume data available'}
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Coming Soon - Advanced AI Insights */}
-      <Card className="bg-gradient-to-r from-purple-50 to-indigo-50">
+      {/* Revenue per Customer */}
+      <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-slate-900 flex items-center">
-                <Brain className="w-5 h-5 mr-2 text-purple-600" />
-                Advanced AI Insights
-                <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-                  Coming Soon
-                </span>
-              </h3>
-              <p className="text-sm text-slate-600">
-                Powered by advanced machine learning and GPT models
-              </p>
-            </div>
-          </div>
+          <h3 className="text-lg font-semibold text-slate-900 flex items-center">
+            <Target className="w-5 h-5 mr-2 text-pink-600" />
+            Revenue per Customer Analysis
+          </h3>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-4 bg-white bg-opacity-50 rounded-lg">
-              <Zap className="w-8 h-8 text-purple-600 mb-2" />
-              <h4 className="font-medium text-slate-900 mb-1">Predictive Analytics</h4>
-              <p className="text-sm text-slate-600">
-                AI-powered forecasting and trend prediction
-              </p>
+          {revenuePerCustomerData ? (
+            <div className="space-y-6">
+              {/* Summary Stats */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-slate-50 p-4 rounded-lg">
+                  <p className="text-sm text-slate-600">Total Customers</p>
+                  <p className="text-2xl font-semibold text-slate-900">
+                    {revenuePerCustomerData.summary.total_customers.toLocaleString()}
+                  </p>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-lg">
+                  <p className="text-sm text-slate-600">Total Revenue</p>
+                  <p className="text-2xl font-semibold text-slate-900">
+                    {formatCurrency(revenuePerCustomerData.summary.total_revenue)}
+                  </p>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-lg">
+                  <p className="text-sm text-slate-600">Avg Revenue/Customer</p>
+                  <p className="text-2xl font-semibold text-slate-900">
+                    {formatCurrency(revenuePerCustomerData.summary.avg_revenue_per_customer)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Customer Segments */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {revenuePerCustomerData.segments.map((segment, index) => (
+                  <div key={index} className="p-4 border rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-medium text-slate-900">{segment.segment}</h4>
+                      <span className={`w-3 h-3 rounded-full ${
+                        segment.segment === 'Premium' ? 'bg-purple-500' :
+                        segment.segment === 'High' ? 'bg-green-500' :
+                        segment.segment === 'Medium' ? 'bg-yellow-500' : 'bg-gray-500'
+                      }`}></span>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-slate-600">
+                        {segment.customer_count} customers
+                      </p>
+                      <p className="text-sm font-medium text-slate-900">
+                        {formatCurrency(segment.avg_revenue_per_customer)} avg
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="p-4 bg-white bg-opacity-50 rounded-lg">
-              <Brain className="w-8 h-8 text-indigo-600 mb-2" />
-              <h4 className="font-medium text-slate-900 mb-1">Smart Recommendations</h4>
-              <p className="text-sm text-slate-600">
-                Personalized product suggestions
-              </p>
+          ) : (
+            <div className="h-64 flex items-center justify-center text-slate-500">
+              {loading ? 'Loading customer revenue analysis...' : 'No customer revenue data available'}
             </div>
-            <div className="p-4 bg-white bg-opacity-50 rounded-lg">
-              <Target className="w-8 h-8 text-blue-600 mb-2" />
-              <h4 className="font-medium text-slate-900 mb-1">Dynamic Pricing</h4>
-              <p className="text-sm text-slate-600">
-                Automated price optimization
-              </p>
-            </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>
   );
-};
-
-function getSegmentColor(segment: string): string {
-  const colorMap: Record<string, string> = {
-    'High Value': '#8b5cf6',
-    'Regular': '#10b981',
-    'New': '#f59e0b',
-    'At Risk': '#f97316'
-  };
-  return colorMap[segment] || '#8884d8';
-} 
+}; 
