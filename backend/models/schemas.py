@@ -22,9 +22,10 @@ class ProcessingError(BaseModel):
 
 class CustomerSegment(BaseModel):
     name: str
-    count: int
-    revenue: float
-    description: str
+    color: str
+    customers: int
+    total_revenue: float
+    avg_revenue: float
 
 class DashboardMetrics(BaseModel):
     total_revenue: float

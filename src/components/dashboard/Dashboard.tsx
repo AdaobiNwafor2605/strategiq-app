@@ -60,8 +60,8 @@ const mockInsights = [
 interface DashboardMetrics {
   total_revenue: number;
   active_customers: number;
-  avg_order_value: number;
-  churn_risk_percentage: number;
+  average_order_value: number;
+  churn_risk: number;
   revenue_forecast: Array<{ 
     period: string; 
     display_name: string; 
@@ -71,9 +71,10 @@ interface DashboardMetrics {
   }>;
   customer_segments: Array<{
     name: string;
-    count: number;
-    revenue: number;
-    description: string;
+    color: string;
+    customers: number;
+    total_revenue: number;
+    avg_revenue: number;
   }>;
 }
 
@@ -81,8 +82,8 @@ interface DashboardProps {
   data: {
     total_revenue?: number;
     active_customers?: number;
-    avg_order_value?: number;
-    churn_risk_percentage?: number;
+    average_order_value?: number;
+    churn_risk?: number;
     revenue_forecast?: Array<{ 
       period: string; 
       display_name: string; 
@@ -92,9 +93,10 @@ interface DashboardProps {
     }>;
     customer_segments?: Array<{
       name: string;
-      count: number;
-      revenue: number;
-      description: string;
+      color: string;
+      customers: number;
+      total_revenue: number;
+      avg_revenue: number;
     }>;
   } | null;
 }
@@ -149,7 +151,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
 
   // Helper function to check if a metric is available
   const isMetricAvailable = (value: any) => {
-    return value !== undefined && value !== null && value !== 0;
+    return value !== undefined && value !== null;
   };
 
   // Prepare chart data from real ML forecast data
@@ -162,14 +164,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
               (item.type === 'forecast') ? item.revenue : null
   })) || [];
 
-  const segmentData = data.customer_segments?.map(segment => ({
-    name: segment.name,
-    revenue: segment.revenue,
-    customers: segment.count,
-    color: segment.name === 'High Value' ? '#8b5cf6' :
-           segment.name === 'At Risk' ? '#f97316' :
-           segment.name === 'New' ? '#10b981' : '#f59e0b'
-  })) || [];
+  const segmentData = data?.customer_segments?.map(segment => {
+    const mappedSegment = {
+      name: segment.name,
+      revenue: segment.total_revenue,
+      customers: segment.customers,
+      avg_revenue: segment.avg_revenue,
+      color: segment.color
+    };
+    return mappedSegment;
+  }) || [];
+  
 
   // Filter insights based on plan
   const availableInsights = hasLimitedAI 
@@ -220,14 +225,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
           </CardContent>
         </Card>
 
-        <Card className={!isMetricAvailable(data.avg_order_value) ? 'opacity-50' : ''}>
+        <Card className={!isMetricAvailable(data.average_order_value) ? 'opacity-50' : ''}>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-600">Average Order Value</p>
-                {isMetricAvailable(data.avg_order_value) ? (
+                {isMetricAvailable(data.average_order_value) ? (
                   <h3 className="text-2xl font-bold text-slate-900">
-                    {formatCurrency(data.avg_order_value!)}
+                    {formatCurrency(data.average_order_value!)}
                   </h3>
                 ) : (
                   <p className="text-sm text-slate-500">Not Available</p>
@@ -240,14 +245,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
           </CardContent>
         </Card>
 
-        <Card className={!isMetricAvailable(data.churn_risk_percentage) ? 'opacity-50' : ''}>
+        <Card className={!isMetricAvailable(data.churn_risk) ? 'opacity-50' : ''}>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-600">Churn Risk</p>
-                {isMetricAvailable(data.churn_risk_percentage) ? (
+                {isMetricAvailable(data.churn_risk) ? (
                   <h3 className="text-2xl font-bold text-slate-900">
-                    {data.churn_risk_percentage!.toFixed(1)}%
+                    {data.churn_risk!.toFixed(1)}%
                   </h3>
                 ) : (
                   <p className="text-sm text-slate-500">Not Available</p>
@@ -311,32 +316,73 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
         {/* Customer Segments */}
         <Card className={segmentData.length === 0 ? 'opacity-50' : ''}>
           <CardHeader>
-            <h3 className="text-lg font-semibold text-slate-900">Customer Segments</h3>
-            <p className="text-sm text-slate-600">Revenue by customer type</p>
+            <h3 className="text-lg font-semibold text-slate-900">Build Automated Segments</h3>
+            <p className="text-sm text-slate-600">AI-powered customer segmentation</p>
           </CardHeader>
           <CardContent>
-            {segmentData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={segmentData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={100}
-                    fill="#8884d8"
-                    dataKey="revenue"
-                    label={({ name, value }) => `${name}: ${formatCurrency(value)}`}
-                  >
-                    {segmentData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value) => [formatCurrency(value as number), 'Revenue']} />
-                </PieChart>
-              </ResponsiveContainer>
+            <h4 className="font-semibold text-slate-900 mb-4">RFM Customer Segments</h4>
+            
+
+            
+            {data?.customer_segments && data.customer_segments.length > 0 ? (
+              <div className="space-y-6">
+                {/* Visual Segment Cards */}
+                <div className="grid grid-cols-4 gap-4">
+                  {segmentData
+                    .sort((a, b) => b.customers - a.customers) // Sort by customer count descending
+                    .map((segment, index) => {
+                      // Use the color already assigned in segmentData
+                      const segmentColor = segment.color;
+                      
+                      return (
+                        <div 
+                          key={index} 
+                          className="relative rounded-xl p-4 text-white shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:scale-105 flex flex-col justify-between h-32"
+                          style={{ 
+                            backgroundColor: segmentColor,
+                            boxShadow: `0 4px 12px rgba(0,0,0,0.15), 0 0 0 1px ${segmentColor}`
+                          }}
+                        >
+                          <div className="space-y-2 flex-1">
+                            <h4 className="font-bold text-sm leading-tight text-white drop-shadow-sm">
+                              {segment.name}
+                            </h4>
+                            <div className="space-y-1 text-xs text-white">
+                              <div className="font-medium drop-shadow-sm">
+                                {segment.customers.toLocaleString()} customers
+                              </div>
+                              <div className="font-semibold text-base drop-shadow-sm">
+                                £{segment.revenue.toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                              </div>
+                              <div className="text-xs opacity-90 drop-shadow-sm">
+                                £{segment.avg_revenue.toFixed(0)} avg
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Icon with better visibility */}
+                          <div className="absolute top-3 right-3 opacity-40">
+                            <Users className="w-4 h-4 text-white drop-shadow-sm" />
+                          </div>
+                          
+                          {/* Subtle gradient overlay for depth */}
+                          <div 
+                            className="absolute inset-0 rounded-xl opacity-10 pointer-events-none"
+                            style={{
+                              background: `linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 100%)`
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
             ) : (
               <div className="h-[300px] flex items-center justify-center text-slate-500">
-                Not Available
+                <div className="text-center">
+                  <Users className="w-12 h-12 mx-auto mb-4 text-slate-300" />
+                  <p>Upload data to generate customer segments</p>
+                </div>
               </div>
             )}
           </CardContent>

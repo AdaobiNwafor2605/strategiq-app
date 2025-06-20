@@ -36,7 +36,12 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5189"],  # Frontend URL
+    allow_origins=[
+        "http://localhost:5189", 
+        "http://localhost:5190", 
+        "http://localhost:5191",
+        "http://localhost:3000"
+    ],  # Multiple possible frontend URLs
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -213,9 +218,11 @@ async def process_files(files: List[UploadFile] = File(...)):
                 "revenue_forecast": make_json_safe(metrics.revenue_forecast),
                 "customer_segments": [
                     {
-                        "segment": segment.name,
-                        "count": make_json_safe(segment.count),
-                        "avgSpend": make_json_safe(safe_divide(segment.revenue, segment.count))
+                        "name": segment.name,
+                        "color": segment.color,
+                        "customers": make_json_safe(segment.customers),
+                        "total_revenue": make_json_safe(segment.total_revenue),
+                        "avg_revenue": make_json_safe(segment.avg_revenue)
                     }
                     for segment in metrics.customer_segments
                 ],
@@ -235,6 +242,11 @@ async def process_files(files: List[UploadFile] = File(...)):
             status_code=500,
             content={"success": False, "error": {"message": f"Error processing data: {str(e)}"}}
         )
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy", "message": "StrategIQ Analytics API is running"}
 
 @app.get("/")
 async def root():

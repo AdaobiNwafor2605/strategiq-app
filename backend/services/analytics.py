@@ -382,20 +382,20 @@ class AnalyticsService:
             return []
 
     def _segment_customers(self) -> List[CustomerSegment]:
-        """Segment customers based on behavior and value."""
+        """Segment customers using RFM (Recency, Frequency, Monetary) analysis."""
         try:
             if 'customer_email' not in self.df.columns or 'total' not in self.df.columns:
                 logger.warning("Required columns for customer segmentation not found")
                 return []
             
-            # Prepare customer data
+            # Prepare customer data with RFM metrics
             customer_data = self.df.groupby('customer_email').agg({
                 'total': ['sum', 'count']
             }).reset_index()
             
-            customer_data.columns = ['customer_email', 'total_spend', 'order_count']
+            customer_data.columns = ['customer_email', 'monetary', 'frequency']
             
-            # Add last order date if available
+            # Add recency (days since last order) if available
             if 'order_date' in self.df.columns:
                 self.df['order_date'] = pd.to_datetime(self.df['order_date'], errors='coerce')
                 if hasattr(self.df['order_date'].dtype, 'tz') and self.df['order_date'].dtype.tz is not None:
@@ -407,6 +407,183 @@ class AnalyticsService:
                     on='customer_email', 
                     how='left'
                 )
+                
+                # Calculate recency (days since last order)
+                today = pd.Timestamp.now().tz_localize(None)
+                customer_data['recency'] = (today - customer_data['last_order']).dt.days
+                customer_data['recency'] = customer_data['recency'].fillna(365)  # Default for missing dates
+            else:
+                # If no date info, use frequency as proxy for recency
+                customer_data['recency'] = 30  # Default moderate recency
+            
+            # Create RFM scores (1-5 scale, 5 being best)
+            customer_data['R_score'] = pd.qcut(customer_data['recency'].rank(method='first'), 5, labels=[5,4,3,2,1])
+            customer_data['F_score'] = pd.qcut(customer_data['frequency'].rank(method='first'), 5, labels=[1,2,3,4,5])
+            customer_data['M_score'] = pd.qcut(customer_data['monetary'].rank(method='first'), 5, labels=[1,2,3,4,5])
+            
+            # Convert to numeric
+            customer_data['R_score'] = pd.to_numeric(customer_data['R_score'])
+            customer_data['F_score'] = pd.to_numeric(customer_data['F_score'])
+            customer_data['M_score'] = pd.to_numeric(customer_data['M_score'])
+            
+            # Create RFM segments based on scores
+            def assign_rfm_segment(row):
+                r, f, m = row['R_score'], row['F_score'], row['M_score']
+                
+                if r >= 4 and f >= 4 and m >= 4:
+                    return 'Champions'
+                elif r >= 3 and f >= 3 and m >= 3:
+                    return 'Loyal Customers'
+                elif r >= 4 and f <= 2:
+                    return 'New Customers'
+                elif r >= 3 and f >= 3 and m <= 2:
+                    return 'Potential Loyalist'
+                elif r >= 4 and f >= 2 and m >= 2:
+                    return 'Promising'
+                elif r <= 2 and f >= 3 and m >= 3:
+                    return 'Cannot Lose Them'
+                elif r <= 2 and f >= 2 and f <= 3:
+                    return 'At Risk'
+                elif r <= 2 and f <= 2 and m >= 3:
+                    return 'Cannot Lose Them'
+                elif r <= 3 and f <= 2 and m <= 2:
+                    return 'Hibernating'
+                else:
+                    return 'Need Attention'
+            
+            customer_data['segment'] = customer_data.apply(assign_rfm_segment, axis=1)
+            
+            # Log detailed customer segmentation
+            logger.info(f"=== DETAILED CUSTOMER SEGMENTATION ===")
+            logger.info(f"Total customers processed: {len(customer_data)}")
+            
+            # Create segment summaries with customer details
+            segment_details = {}
+            for _, row in customer_data.iterrows():
+                segment_name = row['segment']
+                if segment_name not in segment_details:
+                    segment_details[segment_name] = {
+                        'customers': [],
+                        'total_revenue': 0,
+                        'customer_count': 0
+                    }
+                
+                segment_details[segment_name]['customers'].append({
+                    'email': row['customer_email'],
+                    'revenue': row['monetary'],
+                    'frequency': row['frequency'],
+                    'recency': row['recency'] if 'recency' in row else 30,
+                    'rfm_scores': f"R:{row['R_score']}, F:{row['F_score']}, M:{row['M_score']}"
+                })
+                segment_details[segment_name]['total_revenue'] += row['monetary']
+                segment_details[segment_name]['customer_count'] += 1
+            
+            # Log each segment with customer details
+            for segment_name, details in segment_details.items():
+                logger.info(f"\n--- {segment_name.upper()} SEGMENT ---")
+                logger.info(f"Count: {details['customer_count']} customers")
+                logger.info(f"Total Revenue: ${details['total_revenue']:.2f}")
+                logger.info(f"Average Revenue per Customer: ${details['total_revenue'] / details['customer_count']:.2f}")
+                logger.info("Customer Details:")
+                
+                # Sort customers by revenue descending to see top contributors
+                sorted_customers = sorted(details['customers'], key=lambda x: x['revenue'], reverse=True)
+                for i, customer in enumerate(sorted_customers[:5]):  # Show top 5 customers
+                    logger.info(f"  {i+1}. {customer['email']}: ${customer['revenue']:.2f} "
+                              f"(Orders: {customer['frequency']}, RFM: {customer['rfm_scores']})")
+                
+                if len(sorted_customers) > 5:
+                    logger.info(f"  ... and {len(sorted_customers) - 5} more customers")
+            
+            # Create segment summaries for API response
+            segment_summary = customer_data.groupby('segment').agg({
+                'customer_email': 'count',
+                'monetary': 'sum'
+            }).reset_index()
+            
+            segment_summary.columns = ['segment_name', 'customer_count', 'total_revenue']
+            
+            # Validate totals
+            expected_customers = len(customer_data)
+            expected_revenue = customer_data['monetary'].sum()
+            actual_customers = segment_summary['customer_count'].sum()
+            actual_revenue = segment_summary['total_revenue'].sum()
+            
+            logger.info(f"\n=== VALIDATION ===")
+            logger.info(f"Expected customers: {expected_customers}, Actual in segments: {actual_customers}")
+            logger.info(f"Expected revenue: ${expected_revenue:.2f}, Actual in segments: ${actual_revenue:.2f}")
+            
+            if expected_customers != actual_customers:
+                logger.error(f"CUSTOMER COUNT MISMATCH! Missing {expected_customers - actual_customers} customers")
+            if abs(expected_revenue - actual_revenue) > 0.01:
+                logger.error(f"REVENUE MISMATCH! Difference: ${abs(expected_revenue - actual_revenue):.2f}")
+            
+            segments = []
+            for _, row in segment_summary.iterrows():
+                customer_count = int(row['customer_count'])
+                total_revenue = safe_float(row['total_revenue'])
+                avg_revenue = total_revenue / customer_count if customer_count > 0 else 0.0
+                
+                segments.append(CustomerSegment(
+                    name=row['segment_name'],
+                    color=self._get_segment_color(row['segment_name']),
+                    customers=customer_count,
+                    total_revenue=total_revenue,
+                    avg_revenue=avg_revenue
+                ))
+            
+            # Sort by customer count descending for better visualization
+            segments.sort(key=lambda x: x.customers, reverse=True)
+            
+            return segments
+            
+        except Exception as e:
+            logger.error(f"Error in RFM segmentation: {e}")
+            # Fallback to simple segmentation
+            return self._simple_segment_fallback()
+    
+    def _get_segment_color(self, segment_name: str) -> str:
+        """Get hex color for RFM segments."""
+        color_map = {
+            'Champions': '#22c55e',
+            'Loyal Customers': '#3b82f6',
+            'Cannot Lose Them': '#dc2626',
+            'At Risk': '#f97316',
+            'Potential Loyalist': '#8b5cf6',
+            'New Customers': '#06b6d4',
+            'Promising': '#84cc16',
+            'Need Attention': '#eab308',
+            'Hibernating': '#64748b',
+            'High Value': '#8b5cf6',
+            'Regular': '#10b981',
+            'Low Value': '#f59e0b'
+        }
+        return color_map.get(segment_name, '#94a3b8')
+    
+    def _get_segment_description(self, segment_name: str) -> str:
+        """Get description for RFM segments."""
+        descriptions = {
+            'Champions': 'Best customers - high value, frequent, recent',
+            'Loyal Customers': 'Consistent customers with good value',
+            'Potential Loyalist': 'Recent customers with potential',
+            'New Customers': 'Recently acquired customers',
+            'Promising': 'New customers with good early signs',
+            'Need Attention': 'Below average customers needing focus',
+            'About To Sleep': 'Declining engagement, needs intervention',
+            'At Risk': 'Haven\'t purchased recently, at risk of churning',
+            'Cannot Lose Them': 'High-value customers with declining activity',
+            'Hibernating': 'Inactive customers with low recent activity'
+        }
+        return descriptions.get(segment_name, 'Customer segment based on behavior')
+    
+    def _simple_segment_fallback(self) -> List[CustomerSegment]:
+        """Fallback to simple segmentation if RFM fails."""
+        try:
+            customer_data = self.df.groupby('customer_email').agg({
+                'total': ['sum', 'count']
+            }).reset_index()
+            
+            customer_data.columns = ['customer_email', 'total_spend', 'order_count']
             
             segments = []
             total_customers = len(customer_data)
@@ -414,53 +591,49 @@ class AnalyticsService:
             if total_customers == 0:
                 return segments
             
-            # High Value Customers (top 20% by spend)
-            high_value_threshold = customer_data['total_spend'].quantile(0.8)
-            high_value = customer_data[customer_data['total_spend'] >= high_value_threshold]
+            # High Value (top 20%)
+            high_threshold = customer_data['total_spend'].quantile(0.8)
+            high_value = customer_data[customer_data['total_spend'] >= high_threshold]
+            high_count = len(high_value)
+            high_revenue = safe_float(high_value['total_spend'].sum())
             segments.append(CustomerSegment(
                 name="High Value",
-                count=len(high_value),
-                revenue=safe_float(high_value['total_spend'].sum()),
-                description="Top 20% of customers by revenue"
+                color=self._get_segment_color("High Value"),
+                customers=high_count,
+                total_revenue=high_revenue,
+                avg_revenue=high_revenue / high_count if high_count > 0 else 0.0
             ))
             
-            # Regular Customers (middle 60%)
-            regular_threshold_low = customer_data['total_spend'].quantile(0.2)
-            regular_threshold_high = customer_data['total_spend'].quantile(0.8)
+            # Regular (middle 60%)
+            regular_low = customer_data['total_spend'].quantile(0.2)
             regular = customer_data[
-                (customer_data['total_spend'] >= regular_threshold_low) & 
-                (customer_data['total_spend'] < regular_threshold_high)
+                (customer_data['total_spend'] >= regular_low) & 
+                (customer_data['total_spend'] < high_threshold)
             ]
+            regular_count = len(regular)
+            regular_revenue = safe_float(regular['total_spend'].sum())
             segments.append(CustomerSegment(
                 name="Regular",
-                count=len(regular),
-                revenue=safe_float(regular['total_spend'].sum()),
-                description="Middle 60% of customers by revenue"
+                color=self._get_segment_color("Regular"),
+                customers=regular_count,
+                total_revenue=regular_revenue,
+                avg_revenue=regular_revenue / regular_count if regular_count > 0 else 0.0
             ))
             
-            # Low Value Customers (bottom 20%)
-            low_value = customer_data[customer_data['total_spend'] < regular_threshold_low]
+            # Low Value (bottom 20%)
+            low_value = customer_data[customer_data['total_spend'] < regular_low]
+            low_count = len(low_value)
+            low_revenue = safe_float(low_value['total_spend'].sum())
             segments.append(CustomerSegment(
                 name="Low Value",
-                count=len(low_value),
-                revenue=safe_float(low_value['total_spend'].sum()),
-                description="Bottom 20% of customers by revenue"
+                color=self._get_segment_color("Low Value"),
+                customers=low_count,
+                total_revenue=low_revenue,
+                avg_revenue=low_revenue / low_count if low_count > 0 else 0.0
             ))
-            
-            # At Risk Customers (if we have order dates)
-            if 'last_order' in customer_data.columns:
-                today = pd.Timestamp.now().tz_localize(None)
-                days_since_order = (today - customer_data['last_order']).dt.days
-                at_risk = customer_data[days_since_order > 60]
-                segments.append(CustomerSegment(
-                    name="At Risk",
-                    count=len(at_risk),
-                    revenue=safe_float(at_risk['total_spend'].sum()),
-                    description="No orders in last 60 days"
-                ))
             
             return segments
             
         except Exception as e:
-            logger.error(f"Error segmenting customers: {e}")
+            logger.error(f"Error in fallback segmentation: {e}")
             return [] 
