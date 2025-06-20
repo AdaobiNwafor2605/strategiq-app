@@ -474,15 +474,233 @@ async def get_customer_analysis():
         return {"error": str(e), "data": []}
 
 
-# Placeholder endpoints for other analytics features
 @app.get("/api/analytics/geographic-analysis")
 async def get_geographic_analysis():
-    return {"error": "No location data available", "data": []}
+    """Get geographic distribution of customers (if location data is available)"""
+    try:
+        if file_processor.sales_data is None:
+            return {"error": "No sales data available", "data": []}
+        
+        df = file_processor.sales_data
+        
+        # Check if location column exists
+        location_col = None
+        for col in ['customer_location', 'city', 'location', 'billing_city', 'shipping_city', 'billing_address', 'shipping_address']:
+            if col in df.columns:
+                location_col = col
+                break
+        
+        if location_col is None:
+            # Check if we have any column that might contain location data
+            location_candidates = [col for col in df.columns if any(keyword in col.lower() for keyword in ['city', 'location', 'address', 'state', 'country', 'region'])]
+            if location_candidates:
+                location_col = location_candidates[0]  # Use first candidate
+            else:
+                return {"error": "No location data found in uploaded files", "data": [], "available_columns": list(df.columns)}
+        
+        # Group by location and calculate metrics
+        geo_stats = df.groupby(location_col).agg({
+            'total': 'sum',
+            'customer_email': 'nunique',
+            'order_id': 'nunique'
+        }).reset_index()
+        
+        # Sort by revenue
+        geo_stats = geo_stats.sort_values('total', ascending=False)
+        
+        # Format response
+        geo_data = []
+        for _, row in geo_stats.iterrows():
+            geo_data.append({
+                "location": str(row[location_col]),
+                "total_revenue": float(row['total']),
+                "unique_customers": int(row['customer_email']),
+                "total_orders": int(row['order_id']),
+                "avg_revenue_per_customer": float(row['total'] / row['customer_email']) if row['customer_email'] > 0 else 0.0
+            })
+        
+        return {
+            "location_column": location_col,
+            "total_locations": len(geo_data),
+            "data": geo_data[:20]  # Limit to top 20 locations
+        }
+        
+    except Exception as e:
+        return {"error": str(e), "data": [], "available_columns": list(df.columns) if 'df' in locals() else []}
+
 
 @app.get("/api/analytics/order-volume-trends")
 async def get_order_volume_trends(period: str = "monthly"):
-    return {"error": "Feature coming soon", "data": []}
+    """Get order volume trends (number of items per order over time)"""
+    try:
+        if file_processor.sales_data is None:
+            return {"error": "No sales data available", "data": []}
+        
+        df = file_processor.sales_data
+        
+        # Check required columns
+        if 'order_date' not in df.columns:
+            return {"error": "order_date column required", "data": [], "available_columns": list(df.columns)}
+        
+        # Convert order_date to datetime
+        df['order_date'] = pd.to_datetime(df['order_date'], errors='coerce')
+        valid_data = df[df['order_date'].notna()].copy()
+        
+        if len(valid_data) == 0:
+            return {"error": "No valid date data", "data": []}
+        
+        # Aggregate based on period
+        if period == "daily":
+            valid_data['period'] = valid_data['order_date'].dt.date
+        elif period == "weekly":
+            valid_data['period'] = valid_data['order_date'].dt.to_period('W').dt.start_time.dt.date
+        else:  # monthly
+            valid_data['period'] = valid_data['order_date'].dt.to_period('M')
+        
+        # Calculate volume metrics by period
+        if 'quantity' in valid_data.columns:
+            # Count total items and unique orders
+            volume_trends = valid_data.groupby('period').agg({
+                'order_id': 'nunique',
+                'quantity': 'sum'
+            }).reset_index()
+            volume_trends['avg_items_per_order'] = volume_trends['quantity'] / volume_trends['order_id']
+        else:
+            # Just count orders if quantity not available
+            volume_trends = valid_data.groupby('period').agg({
+                'order_id': 'nunique'
+            }).reset_index()
+            volume_trends['quantity'] = 0
+            volume_trends['avg_items_per_order'] = 0
+        
+        # Convert period to string for JSON serialization
+        volume_trends['period_str'] = volume_trends['period'].astype(str)
+        volume_trends = volume_trends.sort_values('period')
+        volume_trends['volume_change'] = volume_trends['order_id'].pct_change() * 100
+        
+        # Format response
+        volume_data = []
+        for _, row in volume_trends.iterrows():
+            volume_data.append({
+                "period": row['period_str'],
+                "order_count": int(row['order_id']),
+                "total_items": int(row['quantity']) if 'quantity' in volume_trends.columns else 0,
+                "avg_items_per_order": float(row['avg_items_per_order']) if 'avg_items_per_order' in volume_trends.columns else 0.0,
+                "change_percent": float(row['volume_change']) if pd.notna(row['volume_change']) else 0.0
+            })
+        
+        return {
+            "period_type": period,
+            "has_quantity_data": 'quantity' in df.columns,
+            "data": volume_data
+        }
+        
+    except Exception as e:
+        return {"error": str(e), "data": [], "available_columns": list(df.columns) if 'df' in locals() else []}
+
 
 @app.get("/api/analytics/revenue-per-customer")
 async def get_revenue_per_customer():
-    return {"error": "Feature coming soon", "data": []} 
+    """Get detailed revenue per customer analysis with segmentation"""
+    try:
+        if file_processor.sales_data is None:
+            return {"error": "No sales data available", "data": []}
+        
+        df = file_processor.sales_data
+        
+        # Check required columns
+        required_cols = ['customer_email', 'total']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            return {"error": f"Missing required columns: {missing_cols}", "data": [], "available_columns": list(df.columns)}
+        
+        # Calculate customer metrics
+        customer_stats = df.groupby('customer_email').agg({
+            'total': 'sum',
+            'order_id': 'nunique',
+            'order_date': ['min', 'max'] if 'order_date' in df.columns else 'count'
+        }).reset_index()
+        
+        # Handle column names based on available data
+        if 'order_date' in df.columns:
+            customer_stats.columns = ['customer_email', 'total_revenue', 'total_orders', 'first_order', 'last_order']
+            
+            # Convert dates and calculate customer lifetime
+            customer_stats['first_order'] = pd.to_datetime(customer_stats['first_order'], errors='coerce')
+            customer_stats['last_order'] = pd.to_datetime(customer_stats['last_order'], errors='coerce')
+            customer_stats['lifetime_days'] = (customer_stats['last_order'] - customer_stats['first_order']).dt.days + 1
+            customer_stats['lifetime_days'] = customer_stats['lifetime_days'].fillna(1)  # Single purchase = 1 day
+        else:
+            customer_stats.columns = ['customer_email', 'total_revenue', 'total_orders', 'order_count']
+            customer_stats['lifetime_days'] = 1  # Default if no date data
+        
+        # Calculate revenue per order
+        customer_stats['revenue_per_order'] = customer_stats['total_revenue'] / customer_stats['total_orders']
+        
+        # Create customer segments based on revenue (quartiles)
+        try:
+            customer_stats['revenue_quartile'] = pd.qcut(customer_stats['total_revenue'], 
+                                                       q=4, labels=['Low', 'Medium', 'High', 'Premium'], duplicates='drop')
+        except ValueError:
+            # If not enough unique values for quartiles, create simple segments
+            customer_stats['revenue_quartile'] = 'All'
+        
+        # Calculate overall metrics
+        total_customers = len(customer_stats)
+        total_revenue = customer_stats['total_revenue'].sum()
+        avg_revenue_per_customer = total_revenue / total_customers if total_customers > 0 else 0
+        
+        # Segment analysis (only if we have proper quartiles)
+        segments_data = []
+        if customer_stats['revenue_quartile'].nunique() > 1:
+            segment_analysis = customer_stats.groupby('revenue_quartile').agg({
+                'customer_email': 'count',
+                'total_revenue': ['mean', 'sum'],
+                'total_orders': 'mean',
+                'revenue_per_order': 'mean',
+                'lifetime_days': 'mean'
+            }).reset_index()
+            
+            # Flatten column names
+            segment_analysis.columns = ['segment', 'customer_count', 'avg_revenue', 'total_segment_revenue', 
+                                      'avg_orders', 'avg_revenue_per_order', 'avg_lifetime_days']
+            
+            # Format segment data
+            for _, row in segment_analysis.iterrows():
+                segments_data.append({
+                    "segment": str(row['segment']),
+                    "customer_count": int(row['customer_count']),
+                    "avg_revenue_per_customer": float(row['avg_revenue']),
+                    "total_segment_revenue": float(row['total_segment_revenue']),
+                    "avg_orders_per_customer": float(row['avg_orders']),
+                    "avg_revenue_per_order": float(row['avg_revenue_per_order']),
+                    "avg_customer_lifetime_days": float(row['avg_lifetime_days'])
+                })
+        
+        # Top customers
+        top_customers = customer_stats.nlargest(10, 'total_revenue')
+        top_customers_data = []
+        for _, row in top_customers.iterrows():
+            top_customers_data.append({
+                "customer_email": str(row['customer_email']),
+                "total_revenue": float(row['total_revenue']),
+                "total_orders": int(row['total_orders']),
+                "revenue_per_order": float(row['revenue_per_order']),
+                "lifetime_days": int(row['lifetime_days']) if pd.notna(row['lifetime_days']) else 1
+            })
+        
+        return {
+            "summary": {
+                "total_customers": total_customers,
+                "total_revenue": float(total_revenue),
+                "avg_revenue_per_customer": float(avg_revenue_per_customer),
+                "avg_orders_per_customer": float(customer_stats['total_orders'].mean()),
+                "avg_revenue_per_order": float(customer_stats['revenue_per_order'].mean())
+            },
+            "segments": segments_data,
+            "top_customers": top_customers_data,
+            "has_date_data": 'order_date' in df.columns
+        }
+        
+    except Exception as e:
+        return {"error": str(e), "data": [], "available_columns": list(df.columns) if 'df' in locals() else []} 
