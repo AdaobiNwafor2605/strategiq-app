@@ -6,8 +6,9 @@ import { Header } from './components/layout/Header';
 import { Dashboard } from './components/dashboard/Dashboard';
 import { DataUpload } from './components/upload/DataUpload';
 import { Analytics } from './components/analytics/Analytics';
+import { PremiumFeatures } from './components/analytics/PremiumFeatures';
 
-type Page = 'landing' | 'auth' | 'dashboard' | 'upload' | 'analytics';
+type Page = 'landing' | 'auth' | 'dashboard' | 'upload' | 'analytics' | 'premium';
 
 const AppContent: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>('landing');
@@ -76,10 +77,17 @@ const AppContent: React.FC = () => {
                   </button>
                 </div>
               ) : (
-                <Analytics data={dashboardData} />
+                <Analytics 
+                  data={dashboardData} 
+                  onPremiumFeaturesClick={() => handleNavigate('premium')}
+                />
               )}
             </div>
           </div>
+        )}
+        
+        {currentPage === 'premium' && (
+          <PremiumFeatures onBackClick={() => handleNavigate('analytics')} />
         )}
       </main>
     </div>

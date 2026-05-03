@@ -1,3 +1,10 @@
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load backend/.env only (secrets stay out of repo root and out of Vite)
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
