@@ -244,6 +244,3 @@ async def check_columns(file: UploadFile = File(...)):
     except Exception as e:
         return {"error": str(e)}
 
-{typeof backendMetrics.error === 'string' && backendMetrics.error.trim() !== '' ? (
-  <div className="text-red-700">{backendMetrics.error}</div>
-) : null} 

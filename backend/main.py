@@ -6,10 +6,12 @@ from dotenv import load_dotenv
 # Load backend/.env only (secrets stay out of repo root and out of Vite)
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
-from fastapi import FastAPI, UploadFile, File
+import difflib
+
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from typing import List
+from typing import List, Dict, Optional
 import pandas as pd
 import numpy as np
 import logging
@@ -108,19 +110,204 @@ def safe_divide(numerator, denominator):
     except (ValueError, TypeError, ZeroDivisionError):
         return 0.0
 
+@app.post("/api/upload/analyze-headers")
+async def analyze_headers(file: UploadFile = File(...)):
+    """
+    Read CSV headers and map them to the 4 critical Shopify fields using exact then
+    fuzzy matching. Returns found, mapped, and missing fields — does NOT run analytics.
+    """
+    try:
+        content = await file.read()
+
+        if not file.filename.endswith(".csv"):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": (
+                        "Please upload a CSV file. In Shopify, go to Orders → Export "
+                        "and choose 'Plain CSV for Excel'."
+                    ),
+                },
+            )
+
+        try:
+            df = pd.read_csv(BytesIO(content))
+        except Exception:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "We couldn't read that file. Make sure it's a valid CSV exported from Shopify.",
+                },
+            )
+
+        if df.empty or len(df.columns) == 0:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "This file appears to be empty — no columns were found."},
+            )
+
+        all_columns = list(df.columns)
+        row_count = len(df)
+        # Build a lowercase lookup: lowercase_name → original_name
+        lower_to_original: Dict[str, str] = {col.lower().strip(): col for col in all_columns}
+
+        # Critical fields the merchant must have.
+        # Keys match what the frontend sends back to /api/process-files as column_mapping.
+        critical_variants: Dict[str, List[str]] = {
+            # "Name" is the standard Shopify order-name column (e.g. #1001)
+            "order_id": REQUIRED_COLUMNS.get("order_id", []) + ["name"],
+            "order_date": REQUIRED_COLUMNS.get("order_date", []),
+            "total_price": (
+                REQUIRED_COLUMNS.get("total", [])
+                + ["total price", "total_price", "subtotal", "grand total",
+                   "order total", "price"]
+            ),
+            # "name" intentionally omitted here — it maps to order_id in Shopify exports
+            "line_items": [
+                "lineitem name", "lineitem quantity", "lineitem price",
+                "line item", "line items", "line_items", "product_name", "item name",
+                "title", "product name", "product", "item", "variant title",
+                "lineitem_name",
+            ],
+        }
+
+        field_labels: Dict[str, str] = {
+            "order_id": "Order ID",
+            "order_date": "Order Date",
+            "total_price": "Order Total / Revenue",
+            "line_items": "Line Items (Products)",
+        }
+
+        field_descriptions: Dict[str, str] = {
+            "order_id": "A unique identifier for each order.",
+            "order_date": "The date each order was placed.",
+            "total_price": "The total amount charged for each order.",
+            "line_items": "The product(s) included in each order.",
+        }
+
+        field_missing_messages: Dict[str, str] = {
+            "order_id": (
+                "We couldn't find an Order ID column. "
+                "Without it, we can't tell your orders apart."
+            ),
+            "order_date": (
+                "We couldn't find an Order Date column. "
+                "Without it, we can't show you trends over time."
+            ),
+            "total_price": (
+                "We couldn't find a Revenue column (e.g. 'Total Price' or 'Subtotal'). "
+                "This is required to calculate your total sales."
+            ),
+            "line_items": (
+                "We couldn't find a product / line item column. "
+                "Product-level analytics won't be available — but you can still continue."
+            ),
+        }
+
+        auto_matched: Dict[str, str] = {}
+        fuzzy_suggestions: Dict[str, List[str]] = {}
+        missing: List[str] = []
+
+        for field, variants in critical_variants.items():
+            matched_col = None
+
+            # Pass 1 — exact match against every known variant
+            for variant in variants:
+                if variant.lower() in lower_to_original:
+                    matched_col = lower_to_original[variant.lower()]
+                    break
+
+            if matched_col:
+                auto_matched[field] = matched_col
+                continue
+
+            # Pass 2 — fuzzy match: score each CSV column against every variant
+            scored: List[tuple] = []
+            for col in all_columns:
+                best = max(
+                    difflib.SequenceMatcher(None, v.lower(), col.lower()).ratio()
+                    for v in variants
+                )
+                if best >= 0.60:
+                    scored.append((col, best))
+
+            scored.sort(key=lambda x: x[1], reverse=True)
+            suggestions = [s[0] for s in scored[:3]]
+
+            if suggestions:
+                fuzzy_suggestions[field] = suggestions
+            else:
+                missing.append(field)
+
+        # line_items is critical for product analytics but not for revenue/customer work;
+        # mark needs_mapping only when order_id / order_date / total_price are uncertain.
+        blocking_fields = {"order_id", "order_date", "total_price"}
+        blocking_uncertain = (
+            any(f in fuzzy_suggestions for f in blocking_fields)
+            or any(f in missing for f in blocking_fields)
+        )
+        needs_mapping = blocking_uncertain or bool(fuzzy_suggestions) or bool(missing)
+
+        logger.info(
+            f"analyze-headers: {file.filename} | "
+            f"auto={list(auto_matched.keys())} fuzzy={list(fuzzy_suggestions.keys())} "
+            f"missing={missing}"
+        )
+
+        return {
+            "success": True,
+            "all_columns": all_columns,
+            "row_count": row_count,
+            "auto_matched": auto_matched,
+            "fuzzy_suggestions": fuzzy_suggestions,
+            "missing": missing,
+            "needs_mapping": needs_mapping,
+            "field_labels": field_labels,
+            "field_descriptions": field_descriptions,
+            "field_missing_messages": field_missing_messages,
+        }
+
+    except Exception as e:
+        logger.error(f"analyze-headers error: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": "We couldn't read that file. Please make sure it's a valid Shopify CSV export.",
+            },
+        )
+
+
 @app.post("/api/process-files")
-async def process_files(files: List[UploadFile] = File(...)):
+async def process_files(
+    files: List[UploadFile] = File(...),
+    column_mapping: Optional[str] = Form(None),
+):
     """Process uploaded files and generate analytics."""
     if not files:
         return JSONResponse(
             status_code=400,
             content={"success": False, "error": {"message": "No files uploaded"}}
         )
-    
+
+    # Parse user-confirmed mapping from the upload wizard (standard_name → csv_column_name).
+    # Translate analyze-headers field names to the standard names used by the pipeline.
+    FIELD_TRANSLATE = {"total_price": "total", "line_items": "product_name"}
+    user_mapping: Dict[str, str] = {}
+    if column_mapping:
+        try:
+            raw = json.loads(column_mapping)
+            user_mapping = {FIELD_TRANSLATE.get(k, k): v for k, v in raw.items()}
+            logger.info(f"User column mapping applied: {user_mapping}")
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("Invalid column_mapping JSON — ignoring.")
+
     dataframes = []
     file_debug = []
     cleaner = DataCleaner()
-    
+
     # Process each uploaded file
     for file in files:
         content = await file.read()
@@ -135,13 +322,24 @@ async def process_files(files: List[UploadFile] = File(...)):
                     status_code=400,
                     content={"success": False, "error": {"message": f"Unsupported file type: {file.filename}. Please upload CSV or Excel files."}}
                 )
-            
+
             if df.empty:
                 return JSONResponse(
                     status_code=400,
                     content={"success": False, "error": {"message": f"File {file.filename} is empty or contains no valid data."}}
                 )
-            
+
+            # Apply the user's confirmed mapping first so the pipeline sees standard names.
+            if user_mapping:
+                rename_map = {
+                    csv_col: std_col
+                    for std_col, csv_col in user_mapping.items()
+                    if csv_col in df.columns
+                }
+                if rename_map:
+                    df = df.rename(columns=rename_map)
+                    logger.info(f"Renamed columns: {rename_map}")
+
             # Create column mappings for this file
             column_mappings = {}
             for standard_col, possible_names in COLUMN_MAPPINGS.items():
