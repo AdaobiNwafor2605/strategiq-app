@@ -6,18 +6,35 @@ from dotenv import load_dotenv
 # Load backend/.env only (secrets stay out of repo root and out of Vite)
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
+import asyncio
 import difflib
 
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Depends, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from typing import List, Dict, Optional
+from jose import jwt, JWTError
 import pandas as pd
 import numpy as np
 import logging
 from io import BytesIO
 import json
 from datetime import datetime
+
+# Encodings to try, in order. utf-8-sig strips the BOM Shopify adds to
+# "Plain CSV for Excel" exports; latin-1/cp1252 cover Windows-exported files.
+_CSV_ENCODINGS = ("utf-8-sig", "utf-8", "latin-1", "cp1252")
+
+
+def _read_csv_robust(content: bytes, **kwargs) -> pd.DataFrame:
+    """Try common encodings until one parses successfully."""
+    last_exc: Exception | None = None
+    for enc in _CSV_ENCODINGS:
+        try:
+            return pd.read_csv(BytesIO(content), encoding=enc, **kwargs)
+        except Exception as exc:
+            last_exc = exc
+    raise last_exc  # re-raise the last failure so callers can log it
 
 # Import our updated services
 from utils.validators import REQUIRED_COLUMNS, validate_dataframes, find_matching_column, COLUMN_MAPPINGS
@@ -37,6 +54,43 @@ try:
 except Exception as e:
     logger.error(f"❌ CRITICAL: Core configuration validation failed: {e}")
     raise SystemExit("System cannot start - core configuration corrupted")
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
+
+def require_auth(authorization: str = Header(...)) -> dict:
+    """
+    FastAPI dependency — verifies the Supabase JWT from the Authorization header.
+    Apply to any endpoint that should require a logged-in user.
+    """
+    if not _JWT_SECRET:
+        # Fail loudly in production; in local dev with no secret configured,
+        # return an empty payload so uploads still work during development.
+        logger.warning("SUPABASE_JWT_SECRET not set — skipping auth check.")
+        return {}
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header.")
+
+    token = authorization[len("Bearer "):].strip()
+
+    try:
+        payload = jwt.decode(
+            token,
+            _JWT_SECRET,
+            algorithms=["HS256"],
+            audience="authenticated",
+        )
+        return payload
+    except JWTError:
+        raise HTTPException(
+            status_code=401,
+            detail="Your session has expired. Please log in again.",
+        )
+
+
+# ── App ────────────────────────────────────────────────────────────────────────
 
 app = FastAPI(
     title="StrategIQ Analytics API",
@@ -111,7 +165,10 @@ def safe_divide(numerator, denominator):
         return 0.0
 
 @app.post("/api/upload/analyze-headers")
-async def analyze_headers(file: UploadFile = File(...)):
+async def analyze_headers(
+    file: UploadFile = File(...),
+    _user: dict = Depends(require_auth),
+):
     """
     Read CSV headers and map them to the 4 critical Shopify fields using exact then
     fuzzy matching. Returns found, mapped, and missing fields — does NOT run analytics.
@@ -131,9 +188,15 @@ async def analyze_headers(file: UploadFile = File(...)):
                 },
             )
 
+        # Run blocking pandas work in a thread so we don't freeze the event loop.
+        # nrows=0 reads only the header row — much faster for large files.
         try:
-            df = pd.read_csv(BytesIO(content))
-        except Exception:
+            loop = asyncio.get_event_loop()
+            df_header = await loop.run_in_executor(
+                None, lambda: _read_csv_robust(content, nrows=0)
+            )
+        except Exception as exc:
+            logger.error(f"analyze-headers: failed to parse CSV: {exc}", exc_info=True)
             return JSONResponse(
                 status_code=400,
                 content={
@@ -142,14 +205,19 @@ async def analyze_headers(file: UploadFile = File(...)):
                 },
             )
 
-        if df.empty or len(df.columns) == 0:
+        if len(df_header.columns) == 0:
             return JSONResponse(
                 status_code=400,
                 content={"success": False, "error": "This file appears to be empty — no columns were found."},
             )
 
-        all_columns = list(df.columns)
-        row_count = len(df)
+        all_columns = list(df_header.columns)
+        # Count data rows by counting newlines — avoids loading the full DataFrame.
+        try:
+            text = content.decode("utf-8-sig", errors="replace")
+            row_count = max(0, text.count("\n") - 1)
+        except Exception:
+            row_count = 0
         # Build a lowercase lookup: lowercase_name → original_name
         lower_to_original: Dict[str, str] = {col.lower().strip(): col for col in all_columns}
 
@@ -284,6 +352,7 @@ async def analyze_headers(file: UploadFile = File(...)):
 async def process_files(
     files: List[UploadFile] = File(...),
     column_mapping: Optional[str] = Form(None),
+    _user: dict = Depends(require_auth),
 ):
     """Process uploaded files and generate analytics."""
     if not files:
@@ -308,15 +377,19 @@ async def process_files(
     file_debug = []
     cleaner = DataCleaner()
 
+    loop = asyncio.get_event_loop()
+
     # Process each uploaded file
     for file in files:
         content = await file.read()
         try:
-            # Read file based on extension
+            # Run blocking file parsing in a thread to keep the event loop free.
             if file.filename.endswith(".csv"):
-                df = pd.read_csv(BytesIO(content))
+                df = await loop.run_in_executor(None, lambda: _read_csv_robust(content))
             elif file.filename.endswith((".xlsx", ".xls")):
-                df = pd.read_excel(BytesIO(content))
+                df = await loop.run_in_executor(
+                    None, lambda: pd.read_excel(BytesIO(content))
+                )
             else:
                 return JSONResponse(
                     status_code=400,
@@ -365,10 +438,10 @@ async def process_files(
             logger.info(f"Processed file: {file.filename} with {len(df_cleaned)} rows and columns: {list(df_cleaned.columns)}")
             
         except Exception as e:
-            logger.error(f"Error processing {file.filename}: {str(e)}")
+            logger.error(f"Error processing {file.filename}: {e}", exc_info=True)
             return JSONResponse(
                 status_code=400,
-                content={"success": False, "error": {"message": f"Failed to parse {file.filename}: {str(e)}. Please ensure the file is not corrupted and contains valid data."}}
+                content={"success": False, "error": {"message": f"We couldn't read {file.filename}. Make sure it's a valid CSV or Excel file exported from Shopify."}}
             )
 
     if not dataframes:
