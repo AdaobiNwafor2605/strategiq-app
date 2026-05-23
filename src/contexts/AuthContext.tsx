@@ -94,6 +94,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const lastName = profile?.last_name ?? supabaseUser.user_metadata?.lastName ?? '';
     const displayName = [firstName, lastName].filter(Boolean).join(' ') || profile?.name || supabaseUser.email;
 
+    // localStorage fallback so onboarding doesn't re-appear on refresh before SQL migration runs
+    const localSeen = localStorage.getItem(`strategiq_seen_${supabaseUser.id}`) === 'true';
+
     return {
       id: supabaseUser.id,
       email: supabaseUser.email,
@@ -111,7 +114,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       referralSource: profile?.referral_source ?? undefined,
       plan: profile?.plan ?? 'micro',
       createdAt: profile?.created_at ?? supabaseUser.created_at,
-      hasSeenOnboarding: profile?.has_seen_onboarding ?? false,
+      hasSeenOnboarding: profile?.has_seen_onboarding ?? localSeen,
       csvUploaded: profile?.csv_uploaded ?? false,
       brandDetailsComplete: profile?.brand_details_complete ?? false,
     };
@@ -141,29 +144,55 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        await flushPendingProfile(session.user.id, session.user.email!);
-        const builtUser = await buildUser(session.user);
-        setUser(builtUser);
-      }
-      setIsLoading(false);
-    });
+    // `active` prevents the first StrictMode effect run's callbacks from
+    // interfering with the second run after cleanup.
+    let active = true;
 
+    // Hard fallback: never leave the spinner running more than 8 seconds.
+    const loadingTimer = setTimeout(() => {
+      if (active) setIsLoading(false);
+    }, 8000);
+
+    // We rely solely on onAuthStateChange (which fires INITIAL_SESSION with the
+    // current session on subscription). Calling getSession() separately would
+    // create two concurrent lock acquisitions on the Supabase client in React
+    // StrictMode, causing a deadlock where session restore never completes.
+    //
+    // setTimeout(0) is required here: Supabase v2 fires SIGNED_IN from inside
+    // initialize()'s internal _acquireLock. Our buildUser() calls
+    // supabase.from().select() which internally calls getSession() →
+    // _acquireLock. Since the lock is already held, it deadlocks. Scheduling
+    // via setTimeout(0) guarantees we run after initialize() releases the lock.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
+        if (!active) return;
+
         if (event === 'PASSWORD_RECOVERY') {
           setAuthEvent('PASSWORD_RECOVERY');
           return;
         }
-        if (session?.user) {
-          await flushPendingProfile(session.user.id, session.user.email!);
-          const builtUser = await buildUser(session.user);
-          setUser(builtUser);
-          setUnverifiedEmail(null);
-        } else {
-          setUser(null);
-        }
+
+        setTimeout(async () => {
+          if (!active) return;
+
+          if (session?.user) {
+            await flushPendingProfile(session.user.id, session.user.email!);
+            const builtUser = await buildUser(session.user);
+            if (active) {
+              setUser(builtUser);
+              setUnverifiedEmail(null);
+            }
+          } else if (active) {
+            setUser(null);
+          }
+
+          // Clear loading after INITIAL_SESSION so the app can render.
+          // SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED are post-login events
+          // and don't need to touch isLoading (it's already false by then).
+          if (active && event === 'INITIAL_SESSION') {
+            setIsLoading(false);
+          }
+        }, 0);
       }
     );
 
@@ -176,6 +205,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     window.addEventListener('beforeunload', handleUnload);
 
     return () => {
+      active = false;
+      clearTimeout(loadingTimer);
       subscription.unsubscribe();
       window.removeEventListener('beforeunload', handleUnload);
     };
@@ -234,6 +265,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const logout = async () => {
+    if (user) localStorage.removeItem(`strategiq_seen_${user.id}`);
     await supabase.auth.signOut();
     sessionStorage.removeItem('strategiq_session_only');
     setUser(null);
@@ -298,6 +330,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const markOnboardingSeen = async () => {
     if (!user) return;
+    // localStorage fallback ensures onboarding doesn't re-appear on refresh before migration runs
+    localStorage.setItem(`strategiq_seen_${user.id}`, 'true');
     await supabase.from('profiles').update({ has_seen_onboarding: true }).eq('id', user.id);
     setUser({ ...user, hasSeenOnboarding: true });
   };
