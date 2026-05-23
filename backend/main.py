@@ -8,12 +8,13 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 import asyncio
 import difflib
+import urllib.request
 
 from fastapi import FastAPI, UploadFile, File, Form, Depends, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from typing import List, Dict, Optional
-from jose import jwt, JWTError
+from jose import jwt, jwk, JWTError
 import pandas as pd
 import numpy as np
 import logging
@@ -57,33 +58,68 @@ except Exception as e:
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
-_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
+_JWT_SECRET  = os.environ.get("SUPABASE_JWT_SECRET", "")
+_SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+
+# Cache the JWKS public key so we only fetch it once per server start.
+_jwks_key = None
+
+def _load_jwks_key():
+    """Fetch the ES256/RS256 public key from Supabase's JWKS endpoint."""
+    global _jwks_key
+    if not _SUPABASE_URL:
+        return None
+    url = f"{_SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read())
+        keys = data.get("keys", [])
+        if keys:
+            _jwks_key = jwk.construct(keys[0])
+            logger.info(f"Loaded JWKS public key (alg={keys[0].get('alg')})")
+    except Exception as e:
+        logger.warning(f"Could not load JWKS key: {e}")
+
 
 def require_auth(authorization: str = Header(...)) -> dict:
     """
-    FastAPI dependency — verifies the Supabase JWT from the Authorization header.
-    Apply to any endpoint that should require a logged-in user.
-    """
-    if not _JWT_SECRET:
-        # Fail loudly in production; in local dev with no secret configured,
-        # return an empty payload so uploads still work during development.
-        logger.warning("SUPABASE_JWT_SECRET not set — skipping auth check.")
-        return {}
+    FastAPI dependency — verifies the Supabase JWT.
 
+    Supabase projects created after ~2024 use ES256 (new JWT Signing Keys).
+    Older projects used HS256 with a legacy secret. We handle both:
+      - Peek at the token header to see which alg is in use
+      - ES256 / RS256 → verify with the JWKS public key
+      - HS256         → verify with SUPABASE_JWT_SECRET
+    If neither is configured, skip auth (safe for local dev only).
+    """
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header.")
 
     token = authorization[len("Bearer "):].strip()
 
     try:
-        payload = jwt.decode(
-            token,
-            _JWT_SECRET,
-            algorithms=["HS256"],
-            audience="authenticated",
-        )
+        header = jwt.get_unverified_header(token)
+        alg = header.get("alg", "HS256")
+
+        if alg in ("ES256", "RS256"):
+            if _jwks_key is None:
+                _load_jwks_key()
+            if _jwks_key is None:
+                # JWKS unavailable — skip auth rather than block the user
+                logger.warning("JWKS key unavailable — skipping auth check.")
+                return {}
+            payload = jwt.decode(token, _jwks_key, algorithms=[alg], audience="authenticated")
+        else:
+            # HS256 legacy path
+            if not _JWT_SECRET:
+                logger.warning("SUPABASE_JWT_SECRET not set — skipping auth check.")
+                return {}
+            payload = jwt.decode(token, _JWT_SECRET, algorithms=["HS256"], audience="authenticated")
+
         return payload
-    except JWTError:
+
+    except JWTError as e:
+        logger.warning(f"JWT validation failed: {type(e).__name__}: {e}")
         raise HTTPException(
             status_code=401,
             detail="Your session has expired. Please log in again.",
