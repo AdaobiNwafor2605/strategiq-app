@@ -10,6 +10,7 @@ interface ButtonProps {
   loading?: boolean;
   onClick?: () => void;
   className?: string;
+  type?: 'button' | 'submit' | 'reset';
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -20,7 +21,8 @@ export const Button: React.FC<ButtonProps> = ({
   disabled = false,
   loading = false,
   onClick,
-  className = ''
+  className = '',
+  type = 'button',
 }) => {
   const baseClasses = 'inline-flex items-center justify-center font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2';
   
@@ -38,6 +40,7 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <button
+      type={type}
       className={`${baseClasses} ${variants[variant]} ${sizes[size]} ${disabled || loading ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
       disabled={disabled || loading}
       onClick={onClick}

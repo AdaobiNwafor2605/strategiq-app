@@ -1,9 +1,24 @@
 export interface User {
   id: string;
   email: string;
+  emailVerified: boolean;
+  // Display name (first + last, or email fallback)
   name: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  country: string;
+  currency: 'GBP' | 'USD' | 'EUR';
+  brandName?: string;
+  brandSize?: string;
+  industrySegment?: string;
+  dateOfBirth?: string;
+  referralSource?: string;
   plan: 'micro' | 'starter' | 'professional' | 'enterprise';
   createdAt: string;
+  hasSeenOnboarding: boolean;
+  csvUploaded: boolean;
+  brandDetailsComplete: boolean;
 }
 
 export interface AnalyticsData {

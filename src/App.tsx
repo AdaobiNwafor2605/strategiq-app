@@ -1,69 +1,163 @@
 import React, { useState, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LandingPage } from './components/landing/LandingPage';
-import { AuthForm } from './components/auth/AuthForm';
+import { LoginForm } from './components/auth/LoginForm';
+import { SignUpForm } from './components/auth/SignUpForm';
+import { ForgotPasswordForm } from './components/auth/ForgotPasswordForm';
+import { ResetPasswordForm } from './components/auth/ResetPasswordForm';
+import { VerifyEmailScreen } from './components/auth/VerifyEmailScreen';
+import { OnboardingScreen } from './components/onboarding/OnboardingScreen';
+import { ProfilePage } from './components/profile/ProfilePage';
 import { Header } from './components/layout/Header';
 import { Dashboard } from './components/dashboard/Dashboard';
 import { DataUpload } from './components/upload/DataUpload';
 import { Analytics } from './components/analytics/Analytics';
 import { PremiumFeatures } from './components/analytics/PremiumFeatures';
 
-type Page = 'landing' | 'auth' | 'dashboard' | 'upload' | 'analytics' | 'premium';
+type Page =
+  | 'landing'
+  | 'login'
+  | 'signup'
+  | 'forgot-password'
+  | 'reset-password'
+  | 'verify-email'
+  | 'onboarding'
+  | 'dashboard'
+  | 'upload'
+  | 'analytics'
+  | 'premium'
+  | 'profile';
+
+const PROTECTED: Page[] = ['dashboard', 'upload', 'analytics', 'premium', 'profile', 'onboarding'];
 
 const AppContent: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>('landing');
   const [dashboardData, setDashboardData] = useState<any>(null);
-  const { user } = useAuth();
+  // Remember where a logged-out user was trying to go, so we can send them there after login
+  const [intendedPage, setIntendedPage] = useState<Page | null>(null);
+  const { user, unverifiedEmail, authEvent, clearAuthEvent, isLoading } = useAuth();
 
-  // Handle navigation based on user login status
   useEffect(() => {
-    if (!user && currentPage !== 'auth') {
-      setCurrentPage('landing');
-    } else if (user && (currentPage === 'landing' || currentPage === 'auth')) {
-      // Redirect to upload page after successful login/signup
-      setCurrentPage('upload');
+    // Password reset link clicked — Supabase fires PASSWORD_RECOVERY event
+    if (authEvent === 'PASSWORD_RECOVERY') {
+      setCurrentPage('reset-password');
+      clearAuthEvent();
+      return;
     }
-  }, [user]);
 
-  const handleNavigate = (page: Page) => {
-    setCurrentPage(page);
-  };
+    // Not logged in, not awaiting verification
+    if (!user && !unverifiedEmail) {
+      if (PROTECTED.includes(currentPage)) {
+        setIntendedPage(currentPage); // remember where they wanted to go
+        setCurrentPage('landing');
+      }
+      return;
+    }
+
+    // Signed up but email not yet verified
+    if (!user && unverifiedEmail) {
+      setCurrentPage('verify-email');
+      return;
+    }
+
+    // Logged in — redirect away from public pages
+    if (user) {
+      const onPublicPage = ['landing', 'login', 'signup', 'forgot-password', 'verify-email'].includes(currentPage);
+      if (onPublicPage) {
+        if (!user.hasSeenOnboarding) {
+          setCurrentPage('onboarding');
+        } else if (intendedPage) {
+          // Send them to the page they originally tried to visit
+          setCurrentPage(intendedPage);
+          setIntendedPage(null);
+        } else {
+          setCurrentPage('upload');
+        }
+      }
+    }
+  }, [user, unverifiedEmail, authEvent]);
+
+  const handleNavigate = (page: string) => setCurrentPage(page as Page);
 
   const handleProcessedData = (data: any) => {
     setDashboardData(data);
     setCurrentPage('dashboard');
   };
 
-  // If not logged in, show landing or auth
+  // Session restoring
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+      </div>
+    );
+  }
+
+  // Password reset page (user arrives from email link — Supabase grants a temporary session)
+  if (currentPage === 'reset-password') {
+    return <ResetPasswordForm onSuccess={() => setCurrentPage('upload')} />;
+  }
+
+  // Email verification waiting screen
+  if (currentPage === 'verify-email' || (!user && unverifiedEmail)) {
+    return <VerifyEmailScreen />;
+  }
+
+  // Public pages — not logged in
   if (!user) {
     return (
       <>
-        {currentPage === 'landing' && <LandingPage onGetStarted={() => setCurrentPage('auth')} />}
-        {currentPage === 'auth' && <AuthForm onBack={() => setCurrentPage('landing')} />}
+        {currentPage === 'landing' && (
+          <LandingPage onGetStarted={() => setCurrentPage('login')} />
+        )}
+        {currentPage === 'login' && (
+          <LoginForm
+            onBack={() => setCurrentPage('landing')}
+            onNavigateToSignUp={() => setCurrentPage('signup')}
+            onNavigateToForgotPassword={() => setCurrentPage('forgot-password')}
+          />
+        )}
+        {currentPage === 'signup' && (
+          <SignUpForm
+            onBack={() => setCurrentPage('landing')}
+            onNavigateToLogin={() => setCurrentPage('login')}
+          />
+        )}
+        {currentPage === 'forgot-password' && (
+          <ForgotPasswordForm onBack={() => setCurrentPage('login')} />
+        )}
       </>
     );
   }
 
-  // If logged in, show the app interface with header
+  // First login onboarding
+  if (currentPage === 'onboarding') {
+    return <OnboardingScreen onNavigate={handleNavigate} />;
+  }
+
+  // Protected app
   return (
     <div className="min-h-screen bg-slate-50">
-      <Header onNavigate={(page) => handleNavigate(page as Page)} currentPage={currentPage} />
-      
+      <Header onNavigate={handleNavigate} currentPage={currentPage} />
+
       <main className="container mx-auto px-4 py-6">
-        {currentPage === 'dashboard' && (
-          <Dashboard data={dashboardData} />
-        )}
-        
         {currentPage === 'upload' && (
           <DataUpload onProcessed={handleProcessedData} />
         )}
-        
+
+        {currentPage === 'dashboard' && (
+          <Dashboard data={dashboardData} />
+        )}
+
+        {currentPage === 'profile' && (
+          <ProfilePage />
+        )}
+
         {currentPage === 'analytics' && (
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-2xl font-semibold text-slate-900 mb-4">
-                Advanced Analytics
-              </h2>
+              <h2 className="text-2xl font-semibold text-slate-900 mb-4">Advanced Analytics</h2>
               {!dashboardData ? (
                 <div className="text-center py-12">
                   <p className="text-slate-600 mb-4">
@@ -77,15 +171,15 @@ const AppContent: React.FC = () => {
                   </button>
                 </div>
               ) : (
-                <Analytics 
-                  data={dashboardData} 
+                <Analytics
+                  data={dashboardData}
                   onPremiumFeaturesClick={() => handleNavigate('premium')}
                 />
               )}
             </div>
           </div>
         )}
-        
+
         {currentPage === 'premium' && (
           <PremiumFeatures onBackClick={() => handleNavigate('analytics')} />
         )}
