@@ -193,13 +193,21 @@ export const SignUpForm: React.FC<SignUpFormProps> = ({ onBack, onNavigateToLogi
                   required
                 />
 
-                <PasswordInput
-                  value={confirmPassword}
-                  onChange={setConfirmPassword}
-                  label="Confirm Password"
-                  placeholder="Repeat your password"
-                  required
-                />
+                <div>
+                  <PasswordInput
+                    value={confirmPassword}
+                    onChange={setConfirmPassword}
+                    label="Confirm Password"
+                    placeholder="Repeat your password"
+                    required
+                  />
+                  {confirmPassword.length > 0 && password !== confirmPassword && (
+                    <p className="mt-1 text-xs text-red-600">Passwords don't match</p>
+                  )}
+                  {confirmPassword.length > 0 && password === confirmPassword && password.length >= 10 && (
+                    <p className="mt-1 text-xs text-green-600">Passwords match ✓</p>
+                  )}
+                </div>
 
                 {error && (
                   <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
