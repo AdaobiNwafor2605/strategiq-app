@@ -1,14 +1,26 @@
 import React from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { BarChart, Upload, LayoutDashboard, Crown, User } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { BarChart, Upload, LayoutDashboard, Crown } from 'lucide-react';
 
-interface HeaderProps {
-  currentPage: string;
-  onNavigate: (page: string) => void;
-}
+export const Header: React.FC = () => {
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
 
-export const Header: React.FC<HeaderProps> = ({ currentPage, onNavigate }) => {
-  const { user, logout } = useAuth();
+  const navItem = (path: string, label: string, Icon: React.ElementType) => (
+    <button
+      onClick={() => navigate(path)}
+      className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium ${
+        pathname === path
+          ? 'bg-purple-100 text-purple-700'
+          : 'text-slate-600 hover:bg-slate-100'
+      }`}
+    >
+      <Icon className="w-4 h-4 mr-2" />
+      {label}
+    </button>
+  );
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
@@ -19,54 +31,30 @@ export const Header: React.FC<HeaderProps> = ({ currentPage, onNavigate }) => {
               <Crown className="w-8 h-8 text-purple-600" />
               <span className="text-2xl font-bold text-purple-600">StrategIQ</span>
             </div>
-            
+
             <nav className="ml-10 flex space-x-4">
-              <button
-                onClick={() => onNavigate('upload')}
-                className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium ${
-                  currentPage === 'upload'
-                    ? 'bg-purple-100 text-purple-700'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Upload Data
-              </button>
-              
-              <button
-                onClick={() => onNavigate('dashboard')}
-                className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium ${
-                  currentPage === 'dashboard'
-                    ? 'bg-purple-100 text-purple-700'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <LayoutDashboard className="w-4 h-4 mr-2" />
-                Dashboard
-              </button>
-              
-              <button
-                onClick={() => onNavigate('analytics')}
-                className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium ${
-                  currentPage === 'analytics'
-                    ? 'bg-purple-100 text-purple-700'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <BarChart className="w-4 h-4 mr-2" />
-                Advanced Analytics
-              </button>
+              {navItem('/upload', 'Upload Data', Upload)}
+              {navItem('/app', 'Dashboard', LayoutDashboard)}
+              {navItem('/analytics', 'Advanced Analytics', BarChart)}
             </nav>
           </div>
-          
+
           <div className="flex items-center space-x-4">
             {user && (
               <>
-                <span className="text-sm text-slate-600">
-                  {user.email}
-                </span>
                 <button
-                  onClick={logout}
+                  onClick={() => navigate('/dashboard')}
+                  className={`flex items-center space-x-1.5 text-sm ${
+                    pathname === '/dashboard'
+                      ? 'text-purple-700 font-medium'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <User className="w-4 h-4" />
+                  <span>{user.email}</span>
+                </button>
+                <button
+                  onClick={signOut}
                   className="px-3 py-2 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-100"
                 >
                   Logout

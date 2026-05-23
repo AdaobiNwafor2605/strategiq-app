@@ -7,11 +7,11 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/assert-node20.mjs && vite",
     "backend": "cd backend && python3 -m uvicorn main:app --reload --port 8000",
-    "build": "vite build",
+    "build": "node scripts/assert-node20.mjs && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "node scripts/assert-node20.mjs && vite preview"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.2",

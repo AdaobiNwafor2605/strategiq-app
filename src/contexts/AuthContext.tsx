@@ -1,21 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 import { User } from '../types';
 
-// Public client only: anon or publishable key in VITE_SUPABASE_ANON_KEY — never service_role / secrets.
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
-
-// Export supabase client so other parts of the app can use it
 export { supabase };
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, name: string) => Promise<void>;
-  logout: () => void;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string) => Promise<void>;
+  signOut: () => void;
   isLoading: boolean;
 }
 
@@ -35,9 +28,8 @@ interface AuthProviderProps {
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true); // true on mount while we check session
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Helper: fetch the profile row and merge it into a User object
   const buildUser = async (supabaseUser: any): Promise<User> => {
     const { data: profile } = await supabase
       .from('profiles')
@@ -54,7 +46,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
   };
 
-  // On mount: restore session if the user was previously logged in
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
@@ -64,7 +55,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setIsLoading(false);
     });
 
-    // Keep user in sync if the token refreshes or they log out in another tab
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (session?.user) {
@@ -79,26 +69,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string) => {
     setIsLoading(true);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setIsLoading(false);
-      throw new Error(error.message); // let your UI catch and display this
+      throw new Error(error.message);
     }
     const builtUser = await buildUser(data.user);
     setUser(builtUser);
     setIsLoading(false);
   };
 
-  const signup = async (email: string, password: string, name: string) => {
+  const signUp = async (email: string, password: string, name: string) => {
     setIsLoading(true);
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: { name } // passed to the trigger as raw_user_meta_data
-      }
+      options: { data: { name } },
     });
     if (error) {
       setIsLoading(false);
@@ -111,13 +99,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setIsLoading(false);
   };
 
-  const logout = () => {
+  const signOut = () => {
     supabase.auth.signOut();
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, signup, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, signIn, signUp, signOut, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

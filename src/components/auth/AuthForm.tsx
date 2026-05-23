@@ -13,16 +13,16 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onBack }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const { login, signup, isLoading } = useAuth();
+  const { signIn, signUp, isLoading } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     try {
       if (isLogin) {
-        await login(email, password);
+        await signIn(email, password);
       } else {
-        await signup(email, password, name);
+        await signUp(email, password, name);
       }
     } catch (error) {
       console.error('Auth error:', error);

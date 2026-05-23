@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
+import React from 'react';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { useAuth } from './contexts/AuthContext';
 import { LandingPage } from './components/landing/LandingPage';
 import { AuthForm } from './components/auth/AuthForm';
 import { Header } from './components/layout/Header';
@@ -7,98 +8,100 @@ import { Dashboard } from './components/dashboard/Dashboard';
 import { DataUpload } from './components/upload/DataUpload';
 import { Analytics } from './components/analytics/Analytics';
 import { PremiumFeatures } from './components/analytics/PremiumFeatures';
+import { ProtectedRoute } from './components/auth/ProtectedRoute';
+import { DashboardPage } from './pages/DashboardPage';
+import { ProcessingMetrics } from './types';
 
-type Page = 'landing' | 'auth' | 'dashboard' | 'upload' | 'analytics' | 'premium';
+// ── Shared layout for all authenticated pages ─────────────────────────────────
+const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="min-h-screen bg-slate-50">
+    <Header />
+    <main className="container mx-auto px-4 py-6">{children}</main>
+  </div>
+);
 
-const AppContent: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState<Page>('landing');
-  const [dashboardData, setDashboardData] = useState<any>(null);
+// ── Public pages ──────────────────────────────────────────────────────────────
+
+const LandingRoute: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  if (user) return <Navigate to="/upload" replace />;
+  return <LandingPage onGetStarted={() => navigate('/login')} />;
+};
 
-  // Handle navigation based on user login status
-  useEffect(() => {
-    if (!user && currentPage !== 'auth') {
-      setCurrentPage('landing');
-    } else if (user && (currentPage === 'landing' || currentPage === 'auth')) {
-      // Redirect to upload page after successful login/signup
-      setCurrentPage('upload');
-    }
-  }, [user]);
+const LoginRoute: React.FC = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  if (user) return <Navigate to="/upload" replace />;
+  return <AuthForm onBack={() => navigate('/')} />;
+};
 
-  const handleNavigate = (page: Page) => {
-    setCurrentPage(page);
+// ── Protected pages ───────────────────────────────────────────────────────────
+
+const UploadRoute: React.FC = () => {
+  const navigate = useNavigate();
+  const handleProcessed = (data: ProcessingMetrics) => {
+    localStorage.setItem('dashboardMetrics', JSON.stringify(data));
+    navigate('/app');
   };
+  return <DataUpload onProcessed={handleProcessed} />;
+};
 
-  const handleProcessedData = (data: any) => {
-    setDashboardData(data);
-    setCurrentPage('dashboard');
-  };
+const AppRoute: React.FC = () => {
+  const raw = localStorage.getItem('dashboardMetrics');
+  const data: ProcessingMetrics | null = raw ? JSON.parse(raw) : null;
+  return <Dashboard data={data} />;
+};
 
-  // If not logged in, show landing or auth
-  if (!user) {
-    return (
-      <>
-        {currentPage === 'landing' && <LandingPage onGetStarted={() => setCurrentPage('auth')} />}
-        {currentPage === 'auth' && <AuthForm onBack={() => setCurrentPage('landing')} />}
-      </>
-    );
-  }
+const AnalyticsRoute: React.FC = () => {
+  const navigate = useNavigate();
+  const raw = localStorage.getItem('dashboardMetrics');
+  const data: ProcessingMetrics | null = raw ? JSON.parse(raw) : null;
 
-  // If logged in, show the app interface with header
   return (
-    <div className="min-h-screen bg-slate-50">
-      <Header onNavigate={(page) => handleNavigate(page as Page)} currentPage={currentPage} />
-      
-      <main className="container mx-auto px-4 py-6">
-        {currentPage === 'dashboard' && (
-          <Dashboard data={dashboardData} />
-        )}
-        
-        {currentPage === 'upload' && (
-          <DataUpload onProcessed={handleProcessedData} />
-        )}
-        
-        {currentPage === 'analytics' && (
-          <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-2xl font-semibold text-slate-900 mb-4">
-                Advanced Analytics
-              </h2>
-              {!dashboardData ? (
-                <div className="text-center py-12">
-                  <p className="text-slate-600 mb-4">
-                    Upload your data to unlock advanced analytics insights
-                  </p>
-                  <button
-                    onClick={() => handleNavigate('upload')}
-                    className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
-                  >
-                    Upload Data
-                  </button>
-                </div>
-              ) : (
-                <Analytics 
-                  data={dashboardData} 
-                  onPremiumFeaturesClick={() => handleNavigate('premium')}
-                />
-              )}
-            </div>
-          </div>
-        )}
-        
-        {currentPage === 'premium' && (
-          <PremiumFeatures onBackClick={() => handleNavigate('analytics')} />
-        )}
-      </main>
+    <div className="bg-white rounded-lg shadow p-6">
+      <h2 className="text-2xl font-semibold text-slate-900 mb-4">Advanced Analytics</h2>
+      {!data ? (
+        <div className="text-center py-12">
+          <p className="text-slate-600 mb-4">Upload your data to unlock advanced analytics insights</p>
+          <button
+            onClick={() => navigate('/upload')}
+            className="inline-flex items-center px-4 py-2 rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+          >
+            Upload Data
+          </button>
+        </div>
+      ) : (
+        <Analytics data={data} onPremiumFeaturesClick={() => navigate('/premium')} />
+      )}
     </div>
   );
 };
 
+const PremiumRoute: React.FC = () => {
+  const navigate = useNavigate();
+  return <PremiumFeatures onBackClick={() => navigate('/analytics')} />;
+};
+
+// ── Root ──────────────────────────────────────────────────────────────────────
+
 function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <Routes>
+      <Route path="/" element={<LandingRoute />} />
+      <Route path="/login" element={<LoginRoute />} />
+
+      {/* All routes below require authentication */}
+      <Route element={<ProtectedRoute />}>
+        <Route path="/dashboard" element={<AppLayout><DashboardPage /></AppLayout>} />
+        <Route path="/upload"    element={<AppLayout><UploadRoute /></AppLayout>} />
+        <Route path="/app"       element={<AppLayout><AppRoute /></AppLayout>} />
+        <Route path="/analytics" element={<AppLayout><AnalyticsRoute /></AppLayout>} />
+        <Route path="/premium"   element={<AppLayout><PremiumRoute /></AppLayout>} />
+      </Route>
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
 
