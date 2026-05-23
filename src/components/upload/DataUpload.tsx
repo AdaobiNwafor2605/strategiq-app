@@ -8,6 +8,7 @@ import {
   Info,
 } from 'lucide-react';
 import { Card, CardContent } from '../ui/Card';
+import { supabase } from '../../contexts/AuthContext';
 import { Button } from '../ui/Button';
 import { DataUploadProps, ProcessingMetrics } from '../../types';
 
@@ -99,6 +100,14 @@ export const DataUpload: React.FC<DataUploadProps> = ({ onProcessed }) => {
     return out;
   }
 
+  // ── Auth header helper ────────────────────────────────────────────────────
+
+  async function authHeader(): Promise<Record<string, string>> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return {};
+    return { Authorization: `Bearer ${session.access_token}` };
+  }
+
   // ── Step 1: file select → call analyze-headers ────────────────────────────
 
   async function handleFileSelect(selected: File) {
@@ -117,7 +126,11 @@ export const DataUpload: React.FC<DataUploadProps> = ({ onProcessed }) => {
       const form = new FormData();
       form.append('file', selected);
 
-      const res = await fetch('/api/upload/analyze-headers', { method: 'POST', body: form });
+      const res = await fetch('/api/upload/analyze-headers', {
+        method: 'POST',
+        headers: await authHeader(),
+        body: form,
+      });
       const data: AnalyzeResult = await res.json();
 
       if (!data.success) {
@@ -163,7 +176,11 @@ export const DataUpload: React.FC<DataUploadProps> = ({ onProcessed }) => {
       form.append('files', file);
       form.append('column_mapping', JSON.stringify(buildPipelineMapping(mapping)));
 
-      const res = await fetch('/api/process-files', { method: 'POST', body: form });
+      const res = await fetch('/api/process-files', {
+        method: 'POST',
+        headers: await authHeader(),
+        body: form,
+      });
       const data = await res.json();
 
       if (data.success && data.metrics) {
