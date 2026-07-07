@@ -449,3 +449,23 @@ friction. Existing users had no obvious route to log in from the landing page
 without going through the sign-up flow first. The login link in the nav is
 styled as a secondary text link so it's visible without competing with the
 primary CTA.
+
+---
+
+## 2026-07-07 — Analytics page: charts and data not loading
+
+**What:** All 8 analytics API calls in `Analytics.tsx` were missing the
+`Authorization: Bearer <token>` header. When we added `require_auth` to every
+analytics backend endpoint earlier this session, those calls started returning
+401 and failed silently — the charts and detailed data just didn't show up.
+Fixed by adding the same `authHeader()` helper used in `DataUpload.tsx` (calls
+`supabase.auth.getSession()` and returns the header map) and passing the result
+as the `headers` option to every `fetch()` call in `fetchAnalyticsData()`.
+Also imported `supabase` from `AuthContext` so the helper could access the
+session.
+
+**Why:** A classic "forgot to update the frontend after tightening the backend"
+mistake. The upload endpoints were already sending auth headers because they
+were written after auth was required. The analytics fetch calls were written
+earlier when those endpoints were open, so the header was never added. Adding
+auth to the backend without auditing all callers left a gap.

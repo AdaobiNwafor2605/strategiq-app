@@ -12,11 +12,12 @@ import {
   ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell,
   Area, AreaChart, ComposedChart
 } from 'recharts';
-import { 
-  AnalyticsProps, TopProductsResponse, AOVTrendsResponse, 
+import {
+  AnalyticsProps, TopProductsResponse, AOVTrendsResponse,
   CustomerAnalysisResponse, GeographicResponse, OrderVolumeResponse,
   RevenuePerCustomerResponse, RevenueTrendsResponse
 } from '../../types';
+import { supabase } from '../../contexts/AuthContext';
 
 const COLORS = ['#8b5cf6', '#10b981', '#f59e0b', '#f97316', '#ef4444', '#3b82f6', '#8b5cf6'];
 
@@ -36,18 +37,25 @@ export const Analytics: React.FC<AnalyticsExtendedProps> = ({ data, onPremiumFea
   const [dataInsights, setDataInsights] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
+  const authHeader = async (): Promise<Record<string, string>> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return {};
+    return { Authorization: `Bearer ${session.access_token}` };
+  };
+
   const fetchAnalyticsData = async () => {
     setLoading(true);
     try {
+      const headers = await authHeader();
       const endpoints = [
-        fetch(`/api/analytics/top-products?limit=10&sort_by=revenue`),
-        fetch(`/api/analytics/aov-trends?period=${selectedPeriod}`),
-        fetch(`/api/analytics/customer-analysis`),
-        fetch(`/api/analytics/geographic-analysis`),
-        fetch(`/api/analytics/order-volume-trends?period=${selectedPeriod}`),
-        fetch(`/api/analytics/revenue-per-customer`),
-        fetch(`/api/analytics/revenue-trends?period=${selectedPeriod}`),
-        fetch(`/api/analytics/data-insights-check`)
+        fetch(`/api/analytics/top-products?limit=10&sort_by=revenue`, { headers }),
+        fetch(`/api/analytics/aov-trends?period=${selectedPeriod}`, { headers }),
+        fetch(`/api/analytics/customer-analysis`, { headers }),
+        fetch(`/api/analytics/geographic-analysis`, { headers }),
+        fetch(`/api/analytics/order-volume-trends?period=${selectedPeriod}`, { headers }),
+        fetch(`/api/analytics/revenue-per-customer`, { headers }),
+        fetch(`/api/analytics/revenue-trends?period=${selectedPeriod}`, { headers }),
+        fetch(`/api/analytics/data-insights-check`, { headers })
       ];
 
       const [
