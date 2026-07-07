@@ -787,7 +787,7 @@ export const DataUploadV2: React.FC<DataUploadV2Props> = ({
   // ── Step: processing ──────────────────────────────────────────────────────
 
   if (step === 'processing') {
-    const stages = ['Reading columns', 'Detecting mapping', 'Validating data', 'Ready'];
+    const stages = ['Reading columns', 'Detecting mapping', 'Validating data', 'Calculating customer insights', 'Ready'];
     const currentIdx = stages.findIndex(s => processStage.includes(s.split(' ')[0]));
 
     return (

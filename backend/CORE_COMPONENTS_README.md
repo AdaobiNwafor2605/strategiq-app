@@ -201,3 +201,24 @@ Previously those datasets got `active_customers=0` and empty segments.
 **Testing done:** Baseline re-run: `4476.79 / 20 / 93.27 / 0.0% / 8` — identical
 to saved baseline (email-based dataset, existing path unchanged). New test with
 `customer_id`-only dataset: `active_customers=3` (3 unique IDs) — correct.
+---
+
+## 2026-07-07 — New: customer_insights.py (standalone service, non-protected)
+
+**What added:** `backend/services/customer_insights.py`
+
+New standalone service — not a protected file. Aggregates cleaned order-level DataFrames into customer-level data with behavioural flags and recommended actions.
+
+**Public API:**
+- `build_customer_insights(df, cust_col) → (customer_df, skipped_count)` — full aggregation pipeline
+- `build_weekly_summary(customer_df) → dict` — groups customers by recommended_action
+
+**Design decisions:**
+- Handles missing columns gracefully: quantity, product, discount, refund all optional
+- `is_at_risk` flag uses per-customer avg_days_between_orders × 2 threshold (not a fixed number)
+- `is_high_value` threshold is the 80th revenue percentile (relative, not absolute)
+- 6 priority rules evaluated in order: lapsed+high_value → at_risk+high_value → full_price_loyal → new_customer → one_time_buyer(30-60d) → discount_dependent → monitor
+- `_json_safe` from upload_v2.py is used to convert customer_df records before storing in Supabase (handles pd.Timestamp, NaT, numpy scalar types)
+- Data stored as JSONB blob per user in `customer_insights_cache` and `action_summary_cache` tables (upserted on every upload)
+
+**Not changed:** `data_cleaner.py`, `analytics.py`, `main.py (make_json_safe/safe_divide)`, `validators.py`, `core_config.py`

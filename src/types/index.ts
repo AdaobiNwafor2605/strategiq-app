@@ -282,3 +282,73 @@ export interface DataUploadV2Props {
 export interface AnalyticsProps {
   data: ProcessingMetrics;
 }
+
+// ── Customer Insights API types ───────────────────────────────────────────────
+
+export type ActionPriority = 'high' | 'medium' | 'low';
+
+export interface CustomerInsight {
+  customer_email?: string;
+  customer_id?: string;
+  total_revenue: number;
+  order_count: number;
+  aov: number;
+  first_order_date: string | null;
+  last_order_date: string | null;
+  days_since_last_order: number;
+  customer_lifetime_days: number;
+  purchase_frequency: number;
+  total_quantity_purchased: number;
+  distinct_products_purchased: number;
+  total_discount_amount: number;
+  discount_usage_rate: number;
+  refund_total: number;
+  net_revenue: number;
+  avg_days_between_orders: number;
+  first_product_purchased: string | null;
+  most_bought_product: string | null;
+  // Behavioural flags
+  is_repeat_customer: boolean;
+  is_one_time_buyer: boolean;
+  is_at_risk: boolean;
+  is_lapsed: boolean;
+  is_discount_dependent: boolean;
+  is_full_price_loyal: boolean;
+  is_high_value: boolean;
+  is_high_return_risk: boolean;
+  is_new_customer: boolean;
+  // Recommended action
+  recommended_action: string;
+  action_reason: string;
+  action_priority: ActionPriority;
+}
+
+export interface CustomerInsightsResponse {
+  success: boolean;
+  upload_id: string | null;
+  row_count: number;
+  skipped_rows: number;
+  generated_at: string;
+  data: CustomerInsight[];
+}
+
+export interface ActionSummaryGroup {
+  action: string;
+  action_priority: ActionPriority;
+  customer_count: number;
+  total_revenue_at_stake: number;
+}
+
+export interface ActionSummaryResponse {
+  success: boolean;
+  upload_id: string | null;
+  generated_at: string;
+  summary: {
+    generated_at: string;
+    groups: ActionSummaryGroup[];
+  };
+}
+
+export interface V2ProcessResponseWithInsights extends V2ProcessResponse {
+  skipped_customers?: number;
+}

@@ -651,3 +651,103 @@ Replaced the bare `pd.to_datetime(series, errors='coerce')` in `clean_date_colum
 
 **`src/components/upload/DataUploadV2.tsx`** (non-protected)
 Updated frontend `FIELD_TRANSLATE` constant to match: `customer_identifier: 'customer_id'`.
+
+---
+
+## 2026-07-07 — Fix: onboarding shown on every login for returning users
+
+**Root cause (three bugs working together):**
+1. `logout()` in `AuthContext.tsx` was calling `localStorage.removeItem(`strategiq_seen_${user.id}`)` — clearing the seen flag on every logout. So on the next login, both the database flag (`has_seen_onboarding`) and localStorage were empty, making `hasSeenOnboarding = false` for every returning user.
+2. `buildUser()` had no fallback for existing profiles where the `has_seen_onboarding` column is `null` (accounts created before the column was added).
+3. `App.tsx` routing: logging out while on the onboarding page set `intendedPage = 'onboarding'` (because `'onboarding'` was in `PROTECTED`). On next login, even with `hasSeenOnboarding: true`, the user was routed back to onboarding via `intendedPage`.
+4. `OnboardingScreen.tsx`: `useEffect(() => { markOnboardingSeen(); }, [])` captured a stale closure — `markOnboardingSeen` closing over a null `user` at initial render, so `if (!user) return` bailed early and the flag was never saved.
+
+**Fixes:**
+
+**`src/App.tsx`**
+Removed `'onboarding'` from `PROTECTED` array so logging out from the onboarding screen no longer sets `intendedPage = 'onboarding'`. Added a guard in the login redirect: if `intendedPage === 'onboarding'`, fall back to `'upload'` instead.
+
+**`src/contexts/AuthContext.tsx`** — `buildUser()`
+Added a time-based fallback: if the account is older than 10 minutes, `hasSeenOnboarding` defaults to `true` regardless of DB/localStorage state. This covers all existing profiles that predate the `has_seen_onboarding` column. The 10-minute window is generous enough to cover the signup → email verify → first login flow for genuinely new accounts.
+Also fixed `brandDetailsComplete` to derive from individual profile fields (`brand_name`, `industry_segment`, `country`) rather than relying solely on the `brand_details_complete` flag — so existing profiles with all fields filled show the checklist item as done without a re-save.
+
+**`src/contexts/AuthContext.tsx`** — `logout()`
+Removed the `localStorage.removeItem(`strategiq_seen_${user.id}`)` call. The seen flag must survive across sessions. It is still cleared on full account deletion.
+
+**`src/components/onboarding/OnboardingScreen.tsx`**
+Changed `useEffect` dependency from `[]` to `[user?.id]` so `markOnboardingSeen()` is called once the user object is actually loaded, not on initial render when the closure may still hold a null user.
+
+**`src/App.tsx`** — `handleProcessedData`
+Added `markCsvUploaded()` call after a real (non-sample) upload completes, so the "Upload CSV" checklist item marks as done on the onboarding screen.
+
+---
+
+## 2026-07-07 — Delete v1 upload: DataUpload.tsx and legacy routes
+
+**What removed:**
+- `src/components/upload/DataUpload.tsx` — the entire v1 upload component (file deleted)
+- `export interface DataUploadProps` — removed from `src/types/index.ts`
+- `POST /api/upload/analyze-headers` — removed from `backend/main.py` (369 lines)
+- `POST /api/process-files` — removed from `backend/main.py`
+
+**Why:** v2 upload (`DataUploadV2.tsx` + `routes/upload_v2.py`) is fully wired and tested end-to-end. Keeping v1 alongside it created confusion and dead code. No other file imported v1 components at the time of deletion — `App.tsx` was already using `DataUploadV2`.
+
+---
+
+## 2026-07-07 — Fix: analytics routes hardcoded customer_email; top products missing quantity
+
+**Root causes:**
+
+1. **Top Products empty:** `get_top_products()` required `quantity` in the DataFrame. Non-Shopify datasets use `order_quantity` (not recognized by auto-detection). Also, `unit_price` was hardcoded in the groupby `agg()` — if `product_price` wasn't detected as `unit_price`, it caused a KeyError.
+
+2. **Returning vs New Customers empty / Unique customers not shown:** Five analytics routes (`customer-analysis`, `revenue-per-customer`, `geographic-analysis`, `data-insights-check`, and the repeat-purchase check) all hardcoded `if 'customer_email' not in df.columns → error`. After the `FIELD_TRANSLATE` fix (customer_identifier → customer_id), non-Shopify datasets have no `customer_email` column — every one of these routes returned "Required columns missing".
+
+**Fixes:**
+
+**`backend/routes/upload_v2.py`** — `_run_pipeline`
+Added a `_EXTRA_RENAMES` normalization step after user mapping, before auto-detection. Renames: `order_quantity` → `quantity`, `order_qty` → `quantity`, `lineitem_quantity` → `quantity`, `product_price` → `unit_price`, `item_price` → `unit_price`, `price_per_item` → `unit_price`, `order_price` → `unit_price`. Only applied when the source column exists and the target name isn't already present.
+
+**`backend/main.py`** — `get_top_products()`
+Made `quantity` and `unit_price` optional: builds the `agg()` dict dynamically based on which columns exist. Falls back to 0 for missing quantity/price in the response.
+
+**`backend/main.py`** — `get_customer_analysis()`, `get_revenue_per_customer()`, `get_geographic_analysis()`, `check_data_insights_availability()`
+Replaced all hardcoded `'customer_email'` checks with a dynamic `cust_col` variable: uses `customer_email` if present, otherwise `customer_id`, otherwise returns an error. All groupby, merge, and column reference operations use `cust_col` throughout. `make_json_safe` and `safe_divide` in main.py were not touched.
+
+---
+
+## 2026-07-07 — Feature: customer preprocessing pipeline
+
+**What added:**
+
+**`backend/services/customer_insights.py`** (new file)
+Full customer-level aggregation service. Takes a cleaned order-level DataFrame and produces:
+- Per-customer core fields: total_revenue, order_count, aov, first/last_order_date, days_since_last_order, customer_lifetime_days, purchase_frequency, total_quantity_purchased, distinct_products_purchased, total_discount_amount, discount_usage_rate, refund_total, net_revenue, avg_days_between_orders, first_product_purchased, most_bought_product.
+- 9 boolean behavioural flags: is_repeat_customer, is_one_time_buyer, is_at_risk, is_lapsed, is_discount_dependent, is_full_price_loyal, is_high_value, is_high_return_risk, is_new_customer.
+- 3 action fields per customer (recommended_action, action_reason, action_priority) using 6 priority rules + default fallback.
+- Weekly grouped summary via `build_weekly_summary()`, sorted high → medium → low priority.
+- Input validation: rows with blank customer_id/email are skipped and counted.
+- All columns are optional (graceful degradation when quantity, product, discount, or refund data is absent).
+
+**`backend/routes/insights.py`** (new file)
+Two GET endpoints:
+- `GET /api/insights/customers` — returns customer-level data from Supabase cache
+- `GET /api/insights/action-summary` — returns weekly action summary from Supabase cache
+
+**`supabase/migrations/20260707_customer_insights.sql`** (new migration — must be run in Supabase SQL editor)
+Creates `customer_insights_cache` and `action_summary_cache` tables. One row per user (UNIQUE constraint on user_id enables upsert). JSONB storage avoids per-row bulk insert complexity. RLS: users read/update own row; service role has full access.
+
+**`backend/routes/upload_v2.py`**
+- Added import: `build_customer_insights`, `build_weekly_summary`
+- Added `_customer_col(df)` helper (returns customer_email > customer_id > None)
+- Added `_run_insights_pipeline(df_clean, user_id, upload_id)` helper — calls insights service, upserts results to both Supabase tables, returns skipped_count
+- Process route now calls `_run_insights_pipeline` in executor after `_build_metrics`, adds `skipped_customers` to response
+
+**`backend/main.py`** — added router include for `/api/insights` (not a protected-function change)
+
+**`src/types/index.ts`** — added CustomerInsight, CustomerInsightsResponse, ActionSummaryGroup, ActionSummaryResponse, V2ProcessResponseWithInsights, ActionPriority
+
+**`src/components/upload/DataUploadV2.tsx`** — added 'Calculating customer insights' to the processing stages list
+
+**Why:** Core analytics pipeline extension. Customer-level segmentation and recommended actions are the strategic output layer of StrategIQ — turning raw order data into per-customer next steps and a weekly priority queue for the brand owner.
+
+**Protected files touched:** None. `make_json_safe` and `safe_divide` in main.py were not modified. `data_cleaner.py`, `analytics.py`, `validators.py`, `core_config.py` were not touched.

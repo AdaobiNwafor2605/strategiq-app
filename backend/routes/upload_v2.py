@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse
 from core_config import CORE_REQUIRED_COLUMNS
 from services.data_cleaner import DataCleaner
 from services.analytics import AnalyticsService
+from services.customer_insights import build_customer_insights, build_weekly_summary, compute_segments
 from services.supabase_service import (
     db_insert, db_select, db_delete, db_upsert, db_update,
     storage_upload, storage_delete, storage_download,
@@ -343,6 +344,65 @@ def _build_metrics(df_clean: pd.DataFrame, user_id: str) -> Dict:
         "columns_found": list(df_clean.columns),
     })
 
+def _customer_col(df: pd.DataFrame) -> Optional[str]:
+    """Return the customer identifier column, preferring email over id."""
+    if "customer_email" in df.columns:
+        return "customer_email"
+    if "customer_id" in df.columns:
+        return "customer_id"
+    return None
+
+
+def _run_insights_pipeline(df_clean: pd.DataFrame, user_id: str, upload_id: str) -> int:
+    """
+    Aggregate df_clean into per-customer insights and persist to Supabase.
+    Returns skipped_count (rows with blank customer identifier).
+    Runs in a thread-pool executor — do not call directly from async context.
+    """
+    cust_col = _customer_col(df_clean)
+    if cust_col is None:
+        logger.info("insights: no customer column found, skipping pipeline")
+        return 0
+
+    try:
+        customer_df, skipped = build_customer_insights(df_clean, cust_col)
+    except Exception as exc:
+        logger.error("insights: build_customer_insights failed: %s", exc, exc_info=True)
+        return 0
+
+    if customer_df.empty:
+        return skipped
+
+    # Convert to JSON-safe records (handles Timestamps, numpy types, NaN)
+    records = _json_safe(customer_df.to_dict(orient="records"))
+
+    summary = build_weekly_summary(customer_df)
+    segments = compute_segments(customer_df)
+
+    # Upsert — the UNIQUE (user_id) constraint means this replaces the old row
+    db_upsert("customer_insights_cache", {
+        "user_id": user_id,
+        "upload_id": upload_id,
+        "data_json": records,
+        "skipped_rows": skipped,
+        "row_count": len(customer_df),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    db_upsert("action_summary_cache", {
+        "user_id": user_id,
+        "upload_id": upload_id,
+        "summary_json": {**summary, "segments": segments},
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    logger.info(
+        "insights: stored %d customer rows (%d skipped) for user %s",
+        len(customer_df), skipped, user_id,
+    )
+    return skipped
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.post("/analyze-headers")
@@ -528,6 +588,11 @@ async def v2_process(
         metrics = _build_metrics(df_clean, user_id)
         _user_sample_mode[user_id] = False
 
+        # Build customer-level insights and persist to Supabase
+        skipped_customers = await loop.run_in_executor(
+            None, lambda: _run_insights_pipeline(df_clean, user_id, upload_id)
+        )
+
         # Update history: complete
         db_update("upload_history", {"id": upload_id}, {
             "status": "complete",
@@ -546,6 +611,7 @@ async def v2_process(
             "encoding_used": encoding_used,
             "uploaded_at": uploaded_at,
             "is_sample_data": False,
+            "skipped_customers": skipped_customers,
         })
 
     except Exception as exc:

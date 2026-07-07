@@ -1,61 +1,96 @@
 import React, { useEffect, useState } from 'react';
-import { BarChart3, Users, TrendingUp, AlertTriangle, Brain, Target, Lock, DollarSign, ShoppingCart, AlertCircle, Clock, Zap } from 'lucide-react';
+import { BarChart3, Users, TrendingUp, AlertTriangle, Brain, Target, DollarSign, ShoppingCart, AlertCircle, Clock, Zap } from 'lucide-react';
+import { supabase } from '../../contexts/AuthContext';
 import { Card, CardHeader, CardContent, CardFooter } from '../ui/Card';
-import { Button } from '../ui/Button';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
-import { useAuth } from '../../contexts/AuthContext';
 import { Loader2 } from 'lucide-react';
 
-const mockSegmentData = [
-  { name: 'High-Value', customers: 1200, revenue: 45000, color: '#8b5cf6' },
-  { name: 'Frequent Buyers', customers: 2800, revenue: 32000, color: '#10b981' },
-  { name: 'New Customers', customers: 1800, revenue: 18000, color: '#f59e0b' },
-  { name: 'At Risk', customers: 800, revenue: 8000, color: '#f97316' }
-];
+type InsightCard = {
+  icon: React.ReactElement;
+  iconBg: string;
+  title: string;
+  description: string;
+  impact: string | null;
+  priority: 'high' | 'medium' | 'low';
+};
 
-const mockForecastData = [
-  { month: 'Jan', predicted: 35000, actual: 32000 },
-  { month: 'Feb', predicted: 38000, actual: 36000 },
-  { month: 'Mar', predicted: 42000, actual: 40000 },
-  { month: 'Apr', predicted: 45000, actual: 43000 },
-  { month: 'May', predicted: 48000, actual: null },
-  { month: 'Jun', predicted: 52000, actual: null }
-];
+function insightFromGroup(group: ActionGroup): InsightCard {
+  const a = group.action.toLowerCase();
+  const n = group.customer_count;
+  const rev = group.total_revenue_at_stake;
+  const impact = rev > 0
+    ? `${n} customer${n !== 1 ? 's' : ''} · £${rev.toLocaleString('en-GB', { maximumFractionDigits: 0 })} revenue at stake`
+    : `${n} customer${n !== 1 ? 's' : ''}`;
 
-const mockInsights = [
-  {
-    type: 'recommendation' as const,
-    title: 'Bundle Opportunity Detected',
-    description: 'Customers who buy "Silk Scarves" are 85% likely to purchase "Designer Handbags". Consider creating a bundle.',
-    priority: 'high' as const,
-    impact: '+£12K monthly revenue',
-    requiresPro: false
-  },
-  {
-    type: 'action' as const,
-    title: 'High-Risk Customer Segment',
-    description: '320 customers in the "Premium" segment haven\'t purchased in 45 days. Launch targeted retention campaign.',
-    priority: 'high' as const,
-    impact: 'Prevent £15K churn',
-    requiresPro: true
-  },
-  {
-    type: 'observation' as const,
-    title: 'Seasonal Trend Identified',
-    description: 'Summer dress sales typically increase 40% in May. Consider increasing inventory by April 15th.',
-    priority: 'medium' as const,
-    impact: '+£8K opportunity',
-    requiresPro: true
-  },
-  {
-    type: 'recommendation' as const,
-    title: 'Cross-Sell Opportunity',
-    description: 'Customers buying "Winter Coats" show 70% likelihood to purchase "Wool Accessories" within 30 days.',
-    priority: 'medium' as const,
-    impact: '+£5K monthly revenue',
-    requiresPro: true
+  if (a.includes('re-engagement') || a.includes("call, don't email")) {
+    return {
+      icon: <AlertTriangle className="w-4 h-4 text-red-600" />,
+      iconBg: 'bg-red-100',
+      title: 'High-Value Customers Going Quiet',
+      description: `${n} of your most valuable customers haven't purchased in 180+ days. A mass email won't cut it — these ones need a personal message.`,
+      impact,
+      priority: group.action_priority,
+    };
   }
-];
+  if (a.includes('win-back')) {
+    return {
+      icon: <AlertTriangle className="w-4 h-4 text-red-600" />,
+      iconBg: 'bg-red-100',
+      title: 'Win-Back Window Open',
+      description: `${n} valuable customers have gone past 2× their usual buying gap. A targeted email with a genuine incentive can recover them before they go cold.`,
+      impact,
+      priority: group.action_priority,
+    };
+  }
+  if (a.includes('vip') || a.includes('full price') && a.includes('no discount')) {
+    return {
+      icon: <BarChart3 className="w-4 h-4 text-green-600" />,
+      iconBg: 'bg-green-100',
+      title: 'Protect Your Full-Price Buyers',
+      description: `${n} customers have never used a discount. Putting them in a sale campaign trains them to wait for deals — exclude them from every promotion.`,
+      impact,
+      priority: group.action_priority,
+    };
+  }
+  if (a.includes('onboarding')) {
+    return {
+      icon: <Target className="w-4 h-4 text-yellow-600" />,
+      iconBg: 'bg-yellow-100',
+      title: 'New Customers Need Nurturing',
+      description: `${n} customers made their first purchase recently. Early nurture is the highest-leverage retention activity — the next 60 days decide if they come back.`,
+      impact,
+      priority: group.action_priority,
+    };
+  }
+  if (a.includes('second-purchase') || a.includes('nudge')) {
+    return {
+      icon: <TrendingUp className="w-4 h-4 text-blue-600" />,
+      iconBg: 'bg-blue-100',
+      title: 'Convert First-Time Buyers Now',
+      description: `${n} one-time buyers are in their 30–60 day window. This is your best chance to turn them into repeat customers — don't let it pass.`,
+      impact,
+      priority: group.action_priority,
+    };
+  }
+  if (a.includes('discount') || a.includes('full price')) {
+    return {
+      icon: <Brain className="w-4 h-4 text-purple-600" />,
+      iconBg: 'bg-purple-100',
+      title: 'Test Full-Price Conversion',
+      description: `${n} customers have used discounts on most of their orders. Test whether they'll buy at full price — you may be leaving margin on the table.`,
+      impact,
+      priority: group.action_priority,
+    };
+  }
+  return {
+    icon: <Target className="w-4 h-4 text-slate-600" />,
+    iconBg: 'bg-slate-100',
+    title: group.action,
+    description: `${n} customers in this segment.`,
+    impact,
+    priority: group.action_priority,
+  };
+}
 
 interface DashboardMetrics {
   total_revenue: number;
@@ -76,6 +111,21 @@ interface DashboardMetrics {
     total_revenue: number;
     avg_revenue: number;
   }>;
+}
+
+interface ActionGroup {
+  action: string;
+  action_priority: 'high' | 'medium' | 'low';
+  customer_count: number;
+  total_revenue_at_stake: number;
+}
+
+interface InsightSegment {
+  name: string;
+  customers: number;
+  total_revenue: number;
+  avg_revenue: number;
+  color: string;
 }
 
 interface DashboardProps {
@@ -111,12 +161,11 @@ function freshnessLabel(iso: string): string {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSampleData }) => {
-  const { user } = useAuth();
-  const isStarterPlan = user?.plan === 'starter';
-  const isMicroPlan = user?.plan === 'micro';
-  const hasLimitedAI = isStarterPlan || isMicroPlan;
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [loading, setLoading] = useState(true);
+  const [actionGroups, setActionGroups] = useState<ActionGroup[]>([]);
+  const [actionSummaryGeneratedAt, setActionSummaryGeneratedAt] = useState<string | null>(null);
+  const [insightSegments, setInsightSegments] = useState<InsightSegment[]>([]);
 
   useEffect(() => {
     const storedMetrics = localStorage.getItem('dashboardMetrics');
@@ -124,6 +173,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSample
       setMetrics(JSON.parse(storedMetrics));
     }
     setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    async function fetchActionSummary() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      try {
+        const res = await fetch('/api/insights/action-summary', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) return;
+        const body = await res.json();
+        if (body.success && body.summary) {
+          setActionGroups(body.summary.groups ?? []);
+          setActionSummaryGeneratedAt(body.summary.generated_at ?? null);
+          setInsightSegments(body.summary.segments ?? []);
+        }
+      } catch {
+        // Silently skip — insights not yet generated
+      }
+    }
+    fetchActionSummary();
   }, []);
 
   if (loading) {
@@ -185,10 +256,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSample
   }) || [];
   
 
-  // Filter insights based on plan
-  const availableInsights = hasLimitedAI 
-    ? mockInsights.filter(insight => !insight.requiresPro).slice(0, isStarterPlan ? 2 : 1)
-    : mockInsights;
+  // Top 3 real insight cards — exclude the catch-all "Monitor" group
+  const insightCards: InsightCard[] = actionGroups
+    .filter(g => !g.action.toLowerCase().includes('monitor'))
+    .slice(0, 3)
+    .map(insightFromGroup);
 
   return (
     <div className="p-6 space-y-6 bg-slate-50 min-h-screen">
@@ -339,74 +411,75 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSample
         </Card>
 
         {/* Customer Segments */}
-        <Card className={segmentData.length === 0 ? 'opacity-50' : ''}>
+        <Card className={insightSegments.length === 0 && segmentData.length === 0 ? 'opacity-50' : ''}>
           <CardHeader>
-            <h3 className="text-lg font-semibold text-slate-900">Build Automated Segments</h3>
-            <p className="text-sm text-slate-600">AI-powered customer segmentation</p>
+            <h3 className="text-lg font-semibold text-slate-900">Customer Segments</h3>
+            <p className="text-sm text-slate-600">Who your customers are and what they're worth</p>
           </CardHeader>
           <CardContent>
-            <h4 className="font-semibold text-slate-900 mb-4">RFM Customer Segments</h4>
-            
-
-            
-            {data?.customer_segments && data.customer_segments.length > 0 ? (
-              <div className="space-y-6">
-                {/* Visual Segment Cards */}
-                <div className="grid grid-cols-4 gap-4">
-                  {segmentData
-                    .sort((a, b) => b.customers - a.customers) // Sort by customer count descending
-                    .map((segment, index) => {
-                      // Use the color already assigned in segmentData
-                      const segmentColor = segment.color;
-                      
-                      return (
-                        <div 
-                          key={index} 
-                          className="relative rounded-xl p-4 text-white shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:scale-105 flex flex-col justify-between h-32"
-                          style={{ 
-                            backgroundColor: segmentColor,
-                            boxShadow: `0 4px 12px rgba(0,0,0,0.15), 0 0 0 1px ${segmentColor}`
-                          }}
-                        >
-                          <div className="space-y-2 flex-1">
-                            <h4 className="font-bold text-sm leading-tight text-white drop-shadow-sm">
-                              {segment.name}
-                            </h4>
-                            <div className="space-y-1 text-xs text-white">
-                              <div className="font-medium drop-shadow-sm">
-                                {segment.customers.toLocaleString()} customers
-                              </div>
-                              <div className="font-semibold text-base drop-shadow-sm">
-                                £{segment.revenue.toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                              </div>
-                              <div className="text-xs opacity-90 drop-shadow-sm">
-                                £{segment.avg_revenue.toFixed(0)} avg
-                              </div>
-                            </div>
-                          </div>
-                          
-                          {/* Icon with better visibility */}
-                          <div className="absolute top-3 right-3 opacity-40">
-                            <Users className="w-4 h-4 text-white drop-shadow-sm" />
-                          </div>
-                          
-                          {/* Subtle gradient overlay for depth */}
-                          <div 
-                            className="absolute inset-0 rounded-xl opacity-10 pointer-events-none"
-                            style={{
-                              background: `linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 100%)`
-                            }}
-                          />
-                        </div>
-                      );
-                    })}
-                </div>
+            {insightSegments.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {insightSegments.map((segment, index) => (
+                  <div
+                    key={index}
+                    className="relative rounded-xl p-4 text-white shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-[1.02] flex flex-col justify-between h-28"
+                    style={{
+                      backgroundColor: segment.color,
+                      boxShadow: `0 4px 12px rgba(0,0,0,0.15)`,
+                    }}
+                  >
+                    <div className="space-y-1">
+                      <h4 className="font-bold text-sm leading-tight text-white drop-shadow-sm">
+                        {segment.name}
+                      </h4>
+                      <div className="text-xs text-white/90 font-medium">
+                        {segment.customers.toLocaleString()} customer{segment.customers !== 1 ? 's' : ''}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="font-semibold text-base text-white drop-shadow-sm">
+                        £{segment.total_revenue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
+                      </div>
+                      <div className="text-xs text-white/80">
+                        £{segment.avg_revenue.toFixed(0)} avg spend
+                      </div>
+                    </div>
+                    <div className="absolute top-3 right-3 opacity-30">
+                      <Users className="w-4 h-4 text-white" />
+                    </div>
+                    <div
+                      className="absolute inset-0 rounded-xl opacity-10 pointer-events-none"
+                      style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 100%)' }}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : segmentData.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {segmentData.map((segment, index) => (
+                  <div
+                    key={index}
+                    className="relative rounded-xl p-4 text-white shadow-md hover:shadow-lg transition-all duration-200 flex flex-col justify-between h-28"
+                    style={{ backgroundColor: segment.color }}
+                  >
+                    <div>
+                      <h4 className="font-bold text-sm text-white">{segment.name}</h4>
+                      <div className="text-xs text-white/90">{segment.customers.toLocaleString()} customers</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold text-base text-white">
+                        £{segment.revenue.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
+                      </div>
+                      <div className="text-xs text-white/80">£{segment.avg_revenue.toFixed(0)} avg</div>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
-              <div className="h-[300px] flex items-center justify-center text-slate-500">
+              <div className="h-[200px] flex items-center justify-center text-slate-500">
                 <div className="text-center">
-                  <Users className="w-12 h-12 mx-auto mb-4 text-slate-300" />
-                  <p>Upload data to generate customer segments</p>
+                  <Users className="w-10 h-10 mx-auto mb-3 text-slate-300" />
+                  <p className="text-sm">Upload data to generate customer segments</p>
                 </div>
               </div>
             )}
@@ -414,8 +487,64 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSample
         </Card>
       </div>
 
-      {/* AI Insights */}
-      <Card className="relative overflow-hidden">
+      {/* Weekly Action Summary */}
+      {actionGroups.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                  <Target className="w-5 h-5 text-purple-600" />
+                  This Week's Customer Actions
+                </h3>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  What to do with your customers right now — ranked by priority
+                </p>
+              </div>
+              {actionSummaryGeneratedAt && (
+                <span className="text-xs text-slate-400">
+                  Updated {new Date(actionSummaryGeneratedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                </span>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="divide-y divide-slate-100">
+              {actionGroups.map((group, i) => {
+                const priorityStyles = {
+                  high: { badge: 'bg-red-100 text-red-700', dot: 'bg-red-500' },
+                  medium: { badge: 'bg-amber-100 text-amber-700', dot: 'bg-amber-400' },
+                  low: { badge: 'bg-slate-100 text-slate-600', dot: 'bg-slate-300' },
+                };
+                const style = priorityStyles[group.action_priority] ?? priorityStyles.low;
+
+                return (
+                  <div key={i} className="flex items-center gap-4 py-3 first:pt-0 last:pb-0">
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${style.dot}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-800 leading-tight">
+                        {group.action}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {group.customer_count} customer{group.customer_count !== 1 ? 's' : ''}
+                        {group.total_revenue_at_stake > 0 && (
+                          <> · <span className="text-green-600 font-medium">{formatCurrency(group.total_revenue_at_stake)} at stake</span></>
+                        )}
+                      </p>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${style.badge}`}>
+                      {group.action_priority}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* AI-Powered Insights — real data from customer pipeline */}
+      <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
@@ -429,78 +558,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSample
             </div>
           </div>
         </CardHeader>
-        <CardContent className="relative">
-          {/* Sample insights that are always visible */}
-          <div className="space-y-4">
-            {/* Sample Insight 1 */}
-            <div className="flex items-start space-x-4 p-4 bg-slate-50 rounded-lg">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-red-100">
-                <AlertTriangle className="w-4 h-4 text-red-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="font-medium text-slate-900">High Churn Risk Detected</h4>
-                  <span className="text-xs px-2 py-1 rounded-full font-medium bg-red-100 text-red-700">
-                    high
-                  </span>
-                </div>
-                <p className="text-sm text-slate-600 mb-2">57 customers haven't purchased in 60+ days. Consider targeted re-engagement campaigns.</p>
-                <p className="text-sm font-medium text-green-600">Potential revenue recovery: £2,250</p>
-              </div>
-            </div>
+        <CardContent>
+          {insightCards.length > 0 ? (
+            <div className="space-y-4">
+              {insightCards.map((card, i) => {
+                const priorityBadge = {
+                  high: 'bg-red-100 text-red-700',
+                  medium: 'bg-yellow-100 text-yellow-700',
+                  low: 'bg-green-100 text-green-700',
+                }[card.priority];
 
-            {/* Sample Insight 2 */}
-            <div className="flex items-start space-x-4 p-4 bg-slate-50 rounded-lg">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-yellow-100">
-                <Target className="w-4 h-4 text-yellow-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="font-medium text-slate-900">Upsell Opportunity</h4>
-                  <span className="text-xs px-2 py-1 rounded-full font-medium bg-yellow-100 text-yellow-700">
-                    medium
-                  </span>
-                </div>
-                <p className="text-sm text-slate-600 mb-2">Champions segment shows 40% higher purchase frequency. Target similar products to Loyal Customers.</p>
-                <p className="text-sm font-medium text-green-600">Estimated revenue increase: £4,500</p>
-              </div>
+                return (
+                  <div key={i} className="flex items-start space-x-4 p-4 bg-slate-50 rounded-lg">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${card.iconBg}`}>
+                      {card.icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <h4 className="font-medium text-slate-900">{card.title}</h4>
+                        <span className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ml-2 ${priorityBadge}`}>
+                          {card.priority}
+                        </span>
+                      </div>
+                      <p className="text-sm text-slate-600 mb-2">{card.description}</p>
+                      {card.impact && (
+                        <p className="text-sm font-medium text-green-600">{card.impact}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-
-            {/* Sample Insight 3 */}
-            <div className="flex items-start space-x-4 p-4 bg-slate-50 rounded-lg">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-green-100">
-                <BarChart3 className="w-4 h-4 text-green-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="font-medium text-slate-900">Seasonal Trend Identified</h4>
-                  <span className="text-xs px-2 py-1 rounded-full font-medium bg-green-100 text-green-700">
-                    low
-                  </span>
-                </div>
-                <p className="text-sm text-slate-600 mb-2">Revenue peaks detected in Q4. Prepare inventory and marketing campaigns 2 months early.</p>
-                <p className="text-sm font-medium text-green-600">Optimize for 25% revenue boost</p>
-              </div>
+          ) : (
+            <div className="py-12 text-center text-slate-400">
+              <Brain className="w-10 h-10 mx-auto mb-3 text-slate-300" />
+              <p className="text-sm font-medium text-slate-500">No insights yet</p>
+              <p className="text-sm mt-1">Upload your orders to see real recommendations based on your customer data.</p>
             </div>
-          </div>
-
-          {/* Overlay for upgrade prompt */}
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/80 to-white/95 flex items-center justify-center">
-            <div className="text-center p-8 max-w-md">
-              <div className="w-16 h-16 mx-auto mb-4 bg-slate-200 rounded-full flex items-center justify-center">
-                <Lock className="w-8 h-8 text-slate-500" />
-              </div>
-              <h3 className="text-xl font-semibold text-slate-700 mb-2">
-                Starter Membership required to unlock these insights
-              </h3>
-              <p className="text-slate-600 mb-6">
-                Get AI-powered recommendations to grow your business
-              </p>
-              <Button className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2">
-                Upgrade Plan
-              </Button>
-            </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>

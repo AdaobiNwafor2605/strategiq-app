@@ -101,6 +101,10 @@ app.add_middleware(
 from routes.upload_v2 import router as _upload_v2_router
 app.include_router(_upload_v2_router, prefix="/api/upload/v2")
 
+# Customer insights and action summary
+from routes.insights import router as _insights_router
+app.include_router(_insights_router, prefix="/api/insights")
+
 def standardize_columns(df):
     """Standardize column names for consistent processing."""
     df.columns = (
