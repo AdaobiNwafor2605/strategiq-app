@@ -469,3 +469,22 @@ mistake. The upload endpoints were already sending auth headers because they
 were written after auth was required. The analytics fetch calls were written
 earlier when those endpoints were open, so the header was never added. Adding
 auth to the backend without auditing all callers left a gap.
+
+---
+
+## 2026-07-07 — SUPABASE_SERVICE_ROLE_KEY added to backend/.env
+
+**What:** Added `SUPABASE_SERVICE_ROLE_KEY` to `backend/.env`. The key is found
+in the Supabase dashboard under Project Settings → API → Project API keys →
+`service_role`. Also needs to be set as an environment variable in Render
+(Environment tab on the backend service) for production account deletion to work.
+
+**Why:** The `DELETE /api/auth/account` endpoint added earlier this session
+requires the service role key to call Supabase's Admin API and permanently
+remove the `auth.users` record. Without it the endpoint returns 501 and account
+deletion fails. The key must only ever live server-side — it bypasses all RLS
+and can read/write anything in the database.
+
+**Decision — not committed to git:** `backend/.env` is gitignored. The key must
+be set manually in each environment (local and Render). `backend/.env.example`
+documents the variable name and where to find it so it isn't forgotten.
