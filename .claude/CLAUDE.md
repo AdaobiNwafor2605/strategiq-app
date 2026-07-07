@@ -56,3 +56,6 @@ postcss.config.js		vite.config.ts
 # - Dashboard page with basic layout
 
 
+## Routing
+- This app uses state-based navigation in App.tsx — NOT React Router
+- Never introduce React Router or any routing library without asking me first
