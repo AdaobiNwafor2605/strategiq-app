@@ -584,6 +584,44 @@ async def root():
     return {"message": "Welcome to StrategIQ Analytics API"}
 
 
+@app.delete("/api/auth/account")
+async def delete_account(_user: dict = Depends(require_auth)):
+    """
+    Delete the calling user's Supabase auth record.
+    Requires SUPABASE_SERVICE_ROLE_KEY — must only ever run server-side.
+    The profile row is deleted client-side first (RLS allows it); this
+    endpoint removes the auth.users record so the email can be reused.
+    """
+    user_id = _user.get("sub", "")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Could not identify user from token.")
+
+    service_role_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not service_role_key or not _SUPABASE_URL:
+        raise HTTPException(
+            status_code=501,
+            detail="Account deletion is not configured on this server. Contact support.",
+        )
+
+    url = f"{_SUPABASE_URL.rstrip('/')}/auth/v1/admin/users/{user_id}"
+    req = urllib.request.Request(url, method="DELETE")
+    req.add_header("Authorization", f"Bearer {service_role_key}")
+    req.add_header("apikey", service_role_key)
+
+    try:
+        with urllib.request.urlopen(req, timeout=10):
+            pass
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        logger.error(f"Supabase user deletion failed: {e.code} {body}")
+        raise HTTPException(status_code=500, detail="Failed to delete account. Please try again.")
+
+    # Clear any in-memory data for this user
+    _user_data.pop(user_id, None)
+    logger.info(f"Account deleted for user {user_id}")
+    return {"success": True}
+
+
 # ============ ANALYTICS ENDPOINTS (Inline to avoid import overhead) ============
 
 @app.get("/api/analytics/top-products")

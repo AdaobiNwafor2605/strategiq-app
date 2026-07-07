@@ -4,9 +4,10 @@ import { Button } from '../ui/Button';
 
 interface LandingPageProps {
   onGetStarted: () => void;
+  onLogin: () => void;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin }) => {
   const features = [
     {
       icon: BarChart3,
@@ -112,7 +113,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
               <Crown className="w-8 h-8 text-purple-600" />
               <span className="text-2xl font-bold text-purple-600">StrategIQ</span>
             </div>
-            <Button onClick={onGetStarted}>Get Started</Button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={onLogin}
+                className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
+              >
+                Log in
+              </button>
+              <Button onClick={onGetStarted}>Get Started</Button>
+            </div>
           </div>
         </div>
       </header>

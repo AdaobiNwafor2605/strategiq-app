@@ -109,7 +109,10 @@ const AppContent: React.FC = () => {
     return (
       <>
         {currentPage === 'landing' && (
-          <LandingPage onGetStarted={() => setCurrentPage('login')} />
+          <LandingPage
+            onGetStarted={() => setCurrentPage('signup')}
+            onLogin={() => setCurrentPage('login')}
+          />
         )}
         {currentPage === 'login' && (
           <LoginForm

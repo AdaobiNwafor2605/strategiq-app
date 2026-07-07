@@ -393,3 +393,59 @@ Storage or a Redis cache — but that's a separate decision.
 **Supabase RLS:** The `profiles` table already had correct RLS policies from
 the May migration (`001_extend_profiles.sql`): SELECT, INSERT, UPDATE, and
 DELETE all scoped to `auth.uid() = id`. No changes needed there.
+
+---
+
+## 2026-07-07 — Delete account: email could not be reused after deletion
+
+**What:** Fixed a bug where deleting an account and trying to sign up again
+with the same email produced "Email already in use." Three changes:
+
+1. **New backend endpoint `DELETE /api/auth/account` (`main.py`)** — verifies
+   the caller's JWT, then calls Supabase's Admin API
+   (`/auth/v1/admin/users/{user_id}`) using the `SUPABASE_SERVICE_ROLE_KEY`
+   to permanently remove the `auth.users` record. Also clears the user's
+   in-memory analytics data from `_user_data`.
+
+2. **`deleteAccount()` updated (`AuthContext.tsx`)** — now runs in three steps:
+   delete the `profiles` row client-side (RLS allows it), call the backend
+   endpoint to remove the auth user, then sign out and clear local state.
+
+3. **`backend/.env.example` updated** — added `SUPABASE_URL` and
+   `SUPABASE_SERVICE_ROLE_KEY` entries with instructions. The service role
+   key must be added to `backend/.env` for deletion to work in production.
+
+**Why:** `deleteAccount()` previously only deleted the `profiles` table row
+and called `signOut()`. The actual user record in Supabase's `auth.users`
+table was never touched. Supabase uses that record to track which emails are
+registered, so the email stayed reserved even after the account appeared
+deleted. Removing from `auth.users` requires the service_role key, which
+must never be in the browser — hence the backend endpoint.
+
+**Decision — backend endpoint over Edge Function:** A Supabase Edge Function
+could also do this, but the FastAPI backend already has the service_role key
+pattern in place for JWT verification. Keeping the deletion there avoids
+adding another runtime (Deno) to the stack.
+
+---
+
+## 2026-07-07 — Landing page: separate sign-up and log-in paths
+
+**What:** The landing page previously had one `onGetStarted` callback wired
+to the login page everywhere — the header button, hero CTA, and all pricing
+plan buttons. Changed in two files:
+
+- **`LandingPage.tsx`** — added `onLogin` prop alongside `onGetStarted`.
+  Header nav now shows a plain "Log in" text link next to the "Get Started"
+  button. All other CTAs ("Start Free Trial", plan buttons) continue to use
+  `onGetStarted`.
+
+- **`App.tsx`** — `onGetStarted` now routes to `'signup'` instead of
+  `'login'`. Passes the new `onLogin` prop routing to `'login'`.
+
+**Why:** A new visitor hitting "Get Started" or "Start Free Trial" intends to
+create an account — sending them to the login form first added unnecessary
+friction. Existing users had no obvious route to log in from the landing page
+without going through the sign-up flow first. The login link in the nav is
+styled as a secondary text link so it's visible without competing with the
+primary CTA.

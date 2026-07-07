@@ -344,10 +344,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const deleteAccount = async () => {
     if (!user) return;
-    // DATA ISOLATION: .eq('id', user.id) + RLS "Users can delete own profile"
-    // Auth user removal from auth.users requires service_role key (server-side only).
+
+    // 1. Delete the profile row — the user's own JWT satisfies RLS.
     await supabase.from('profiles').delete().eq('id', user.id);
+
+    // 2. Delete the auth.users record via the backend (service_role required).
+    //    Without this the email stays reserved in Supabase and can't be reused.
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      const res = await fetch('/api/auth/account', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.detail ?? 'Failed to delete account. Please try again.');
+      }
+    }
+
+    // 3. Sign out and clear local state.
+    localStorage.removeItem(`strategiq_seen_${user.id}`);
     await supabase.auth.signOut();
+    sessionStorage.removeItem('strategiq_session_only');
     setUser(null);
   };
 
