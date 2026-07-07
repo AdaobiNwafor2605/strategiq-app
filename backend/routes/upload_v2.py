@@ -54,26 +54,40 @@ CRITICAL_FIELDS: Dict[str, List[str]] = {
         "line item", "line items", "line_items", "product_name", "item name",
         "title", "product name", "product", "item", "variant title", "lineitem_name",
     ],
+    "customer_identifier": [
+        "email", "customer email", "customer_email", "email address",
+        "customer id", "customer_id", "customerid", "customer number",
+        "user id", "user_id", "userid", "client id", "client_id",
+        "buyer id", "buyer_id", "shopper id", "contact email",
+        "contact id", "member id", "member_id", "account id", "account_id",
+    ],
 }
 FIELD_LABELS = {
     "order_id": "Order ID",
     "order_date": "Order Date",
     "total_price": "Order Total / Revenue",
     "line_items": "Line Items (Products)",
+    "customer_identifier": "Customer Identifier",
 }
 FIELD_DESCRIPTIONS = {
     "order_id": "A unique identifier for each order.",
     "order_date": "The date each order was placed.",
     "total_price": "The total amount charged for each order.",
     "line_items": "The product(s) included in each order.",
+    "customer_identifier": "A unique identifier per customer — can be an email address, a numeric customer ID, or any consistent ID.",
 }
 FIELD_MISSING_MESSAGES = {
     "order_id": "We couldn't find an Order ID column. Without it, we can't tell your orders apart.",
     "order_date": "We couldn't find an Order Date column. Without it, we can't show trends over time.",
     "total_price": "We couldn't find a Revenue column (e.g. 'Total Price' or 'Subtotal'). This is required to calculate your total sales.",
     "line_items": "We couldn't find a product column. Product analytics won't be available — but revenue and customer insights will still work.",
+    "customer_identifier": "We couldn't find a customer identifier. Without it, we can't count unique customers or build segments. Select whichever column uniquely identifies each customer.",
 }
-FIELD_TRANSLATE = {"total_price": "total", "line_items": "product_name"}
+FIELD_TRANSLATE = {
+    "total_price": "total",
+    "line_items": "product_name",
+    "customer_identifier": "customer_email",  # analytics.py uses customer_email as the identifier col
+}
 
 # ── JSON safety (local copy to avoid circular import from main.py) ─────────────
 

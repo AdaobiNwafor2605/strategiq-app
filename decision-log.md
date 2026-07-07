@@ -601,6 +601,33 @@ to baseline-tests/baseline-outputs.json. Because no protected files were changed
 a re-run is not strictly required, but the baseline directory is committed so it
 can be re-run at any time to confirm the pipeline is unchanged.
 
+---
+
+## 2026-07-07 — Customer identifier: support customer_id and other non-email identifiers
+
+**What:** Three files changed to support datasets that identify customers by ID rather than email.
+
+**`backend/services/analytics.py`** (protected file — modified)
+Added `_customer_col()` helper method to `AnalyticsService`. Returns `'customer_email'` if present in the dataframe, else `'customer_id'`, else `None`. Replaced four hardcoded `'customer_email'` references in `_count_active_customers`, `_calculate_churn_risk`, `_segment_customers`, and `_simple_segment_fallback` with `self._customer_col()`. No protected functions (`safe_float`, `safe_int`, timezone handling) were touched — only business logic in the four customer-counting/segmentation methods.
+
+**`backend/routes/upload_v2.py`** (non-protected)
+Added `customer_identifier` as a 5th entry in `CRITICAL_FIELDS` with variants covering email, customer_id, user_id, client_id, buyer_id, member_id, account_id, etc. Added corresponding `FIELD_LABELS`, `FIELD_DESCRIPTIONS`, `FIELD_MISSING_MESSAGES`. Added `"customer_identifier": "customer_email"` to `FIELD_TRANSLATE` — when the user maps any column as their customer identifier, it gets renamed to `customer_email` before entering the pipeline, which is what analytics.py reads.
+
+**`src/components/upload/DataUploadV2.tsx`** (non-protected)
+Added `'customer_identifier'` to the `CRITICAL_FIELDS` array. Left out of `BLOCKING_FIELDS` (warning only, not hard-blocking) — datasets without any detectable customer identifier can still be processed for revenue and order analytics, they just won't have customer counts or segments.
+
+**Why:** Shopify exports always include `email`. But non-Shopify datasets (or anonymised exports) use numeric or string customer IDs. Previously `analytics.py` hardcoded `customer_email` everywhere — any dataset without that exact column got `active_customers=0` and empty segments. The fix makes the analytics work with whatever unique customer identifier is present, without requiring the user's data to have an email column.
+
+**Testing:** Baseline re-run confirmed unchanged: `4476.79 / 20 / 93.27 / 0.0% / 8` (baseline uses `customer_email` — existing path unaffected). Separate test with a `customer_id`-only dataset of 5 rows / 3 unique customers: `active_customers=3`, `segments=3` — correct.
+
+---
+
+## 2026-07-07 — Data upload v2: full rewrite of the upload pipeline
+
+**What:** Complete replacement of the v1 upload flow. No protected files were
+modified. All changes are additive — new files only (new routes module, new shared
+modules, new frontend component) plus wiring into existing entry points.
+
 **Why:** The v1 upload flow had no progress feedback, no column confidence
 indicators, no preview, no error reporting, no history, no sample data mode, no
 duplicate detection, and no file storage. The v2 rebuild delivers all of these

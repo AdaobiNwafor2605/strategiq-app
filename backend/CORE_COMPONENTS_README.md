@@ -164,3 +164,28 @@ now-moved global; changed to a local `os.environ.get(...)` call).
 saved to `baseline-tests/baseline-outputs.json`. Because no protected files were
 touched, the outputs are still valid. Re-run `baseline-tests/run_baseline.py`
 to verify any time.
+
+---
+
+## 2026-07-07 — analytics.py: customer_id fallback added (business logic only)
+
+**What changed:** Added `_customer_col()` helper method to `AnalyticsService`.
+Replaced hardcoded `'customer_email'` references in four methods with
+`self._customer_col()` which returns `customer_email` if present, else
+`customer_id`, else `None`.
+
+**Methods changed:**
+- `_count_active_customers` — uses `_customer_col()` instead of `'customer_email'`
+- `_calculate_churn_risk` — uses `_customer_col()` instead of `'customer_email'`
+- `_segment_customers` — uses `_customer_col()` for groupby and merge
+- `_simple_segment_fallback` — uses `_customer_col()` for groupby
+
+**Protected functions NOT touched:** `safe_float`, `safe_int`, timezone handling
+in `_calculate_churn_risk` and `_segment_customers` — these are unchanged.
+
+**Why:** Non-Shopify datasets use `customer_id` instead of `customer_email`.
+Previously those datasets got `active_customers=0` and empty segments.
+
+**Testing done:** Baseline re-run: `4476.79 / 20 / 93.27 / 0.0% / 8` — identical
+to saved baseline (email-based dataset, existing path unchanged). New test with
+`customer_id`-only dataset: `active_customers=3` (3 unique IDs) — correct.

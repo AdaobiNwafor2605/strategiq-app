@@ -43,13 +43,14 @@ type Step =
   | 'success'      // Confirmation screen
   | 'history';     // Upload history page
 
-const CRITICAL_FIELDS = ['order_id', 'order_date', 'total_price', 'line_items'] as const;
+const CRITICAL_FIELDS = ['order_id', 'order_date', 'total_price', 'line_items', 'customer_identifier'] as const;
 const BLOCKING_FIELDS = new Set(['order_id', 'order_date', 'total_price']);
 const FIELD_TRANSLATE: Record<string, string> = {
   order_id: 'order_id',
   order_date: 'order_date',
   total_price: 'total',
   line_items: 'product_name',
+  customer_identifier: 'customer_email',
 };
 
 const ACCEPTED_EXTENSIONS = '.csv,.xlsx,.xls';

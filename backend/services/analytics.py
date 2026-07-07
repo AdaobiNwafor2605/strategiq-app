@@ -38,13 +38,21 @@ class AnalyticsService:
         self.today = datetime.now()
         logger.info(f"Initializing AnalyticsService with DataFrame shape: {df.shape}")
         logger.info(f"DataFrame columns: {list(df.columns)}")
-        
+
         # Log which required columns are available
         for col in REQUIRED_COLUMNS.keys():
             if col in df.columns:
                 logger.info(f"✓ Required column '{col}' found")
             else:
                 logger.warning(f"✗ Required column '{col}' missing")
+
+    def _customer_col(self):
+        """Return whichever customer identifier column is present: email first, then ID."""
+        if 'customer_email' in self.df.columns:
+            return 'customer_email'
+        if 'customer_id' in self.df.columns:
+            return 'customer_id'
+        return None
 
     def compute_metrics(self) -> DashboardMetrics:
         """Compute all dashboard metrics."""
@@ -98,13 +106,13 @@ class AnalyticsService:
             return 0.0
 
     def _count_active_customers(self) -> int:
-        """Count unique customers based on email."""
+        """Count unique customers using whichever identifier column is present."""
         try:
-            if 'customer_email' in self.df.columns:
-                return safe_int(self.df['customer_email'].nunique())
-            else:
-                logger.warning("'customer_email' column not found, returning 0")
-                return 0
+            col = self._customer_col()
+            if col:
+                return safe_int(self.df[col].nunique())
+            logger.warning("No customer identifier column found, returning 0")
+            return 0
         except (ValueError, TypeError) as e:
             logger.error(f"Error counting active customers: {e}")
             return 0
@@ -130,23 +138,24 @@ class AnalyticsService:
     def _calculate_churn_risk(self) -> float:
         """Calculate churn risk percentage."""
         try:
-            if 'order_date' not in self.df.columns or 'customer_email' not in self.df.columns:
+            cust_col = self._customer_col()
+            if 'order_date' not in self.df.columns or not cust_col:
                 logger.warning("Required columns for churn risk calculation not found")
                 return 15.0  # Return default value
-            
+
             # Convert order_date to datetime if it's not already, remove timezone info
             self.df['order_date'] = pd.to_datetime(self.df['order_date'], errors='coerce')
             if hasattr(self.df['order_date'].dtype, 'tz') and self.df['order_date'].dtype.tz is not None:
                 self.df['order_date'] = self.df['order_date'].dt.tz_localize(None)
-            
+
             # Remove rows with invalid dates
             valid_dates = self.df[self.df['order_date'].notna()]
-            
+
             if len(valid_dates) == 0:
                 return 15.0  # Default value
-            
+
             # Calculate last order date for each customer
-            last_order_dates = valid_dates.groupby('customer_email')['order_date'].max()
+            last_order_dates = valid_dates.groupby(cust_col)['order_date'].max()
             
             # Calculate days since last order using timezone-naive datetime
             today = pd.Timestamp.now().tz_localize(None)
@@ -384,27 +393,28 @@ class AnalyticsService:
     def _segment_customers(self) -> List[CustomerSegment]:
         """Segment customers using RFM (Recency, Frequency, Monetary) analysis."""
         try:
-            if 'customer_email' not in self.df.columns or 'total' not in self.df.columns:
+            cust_col = self._customer_col()
+            if not cust_col or 'total' not in self.df.columns:
                 logger.warning("Required columns for customer segmentation not found")
                 return []
-            
+
             # Prepare customer data with RFM metrics
-            customer_data = self.df.groupby('customer_email').agg({
+            customer_data = self.df.groupby(cust_col).agg({
                 'total': ['sum', 'count']
             }).reset_index()
-            
-            customer_data.columns = ['customer_email', 'monetary', 'frequency']
-            
+
+            customer_data.columns = [cust_col, 'monetary', 'frequency']
+
             # Add recency (days since last order) if available
             if 'order_date' in self.df.columns:
                 self.df['order_date'] = pd.to_datetime(self.df['order_date'], errors='coerce')
                 if hasattr(self.df['order_date'].dtype, 'tz') and self.df['order_date'].dtype.tz is not None:
                     self.df['order_date'] = self.df['order_date'].dt.tz_localize(None)
-                
-                last_orders = self.df[self.df['order_date'].notna()].groupby('customer_email')['order_date'].max()
+
+                last_orders = self.df[self.df['order_date'].notna()].groupby(cust_col)['order_date'].max()
                 customer_data = customer_data.merge(
                     last_orders.reset_index().rename(columns={'order_date': 'last_order'}),
-                    on='customer_email', 
+                    on=cust_col,
                     how='left'
                 )
                 
@@ -469,7 +479,7 @@ class AnalyticsService:
                     }
                 
                 segment_details[segment_name]['customers'].append({
-                    'email': row['customer_email'],
+                    'email': row[cust_col],
                     'revenue': row['monetary'],
                     'frequency': row['frequency'],
                     'recency': row['recency'] if 'recency' in row else 30,
@@ -579,11 +589,14 @@ class AnalyticsService:
     def _simple_segment_fallback(self) -> List[CustomerSegment]:
         """Fallback to simple segmentation if RFM fails."""
         try:
-            customer_data = self.df.groupby('customer_email').agg({
+            cust_col = self._customer_col()
+            if not cust_col:
+                return []
+            customer_data = self.df.groupby(cust_col).agg({
                 'total': ['sum', 'count']
             }).reset_index()
-            
-            customer_data.columns = ['customer_email', 'total_spend', 'order_count']
+
+            customer_data.columns = [cust_col, 'total_spend', 'order_count']
             
             segments = []
             total_customers = len(customer_data)
