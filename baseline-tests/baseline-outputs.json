@@ -1,0 +1,630 @@
+{
+  "generated_at": "2026-07-07T15:45:53.486988",
+  "source_csv": "48-record-baseline.csv",
+  "pipeline_version": "v1",
+  "data_overview": {
+    "total_rows": 48,
+    "columns_available": [
+      "order_id",
+      "customer_email",
+      "financial_status",
+      "order_date",
+      "currency",
+      "subtotal",
+      "shipping",
+      "taxes",
+      "total",
+      "quantity",
+      "product_name",
+      "unit_price",
+      "customer_name",
+      "customer_location",
+      "country"
+    ],
+    "unique_customers": 20,
+    "unique_orders": 48,
+    "unique_products": 8
+  },
+  "core_metrics": {
+    "total_revenue": 4476.79,
+    "active_customers": 20,
+    "avg_order_value": 93.26645833333333,
+    "churn_risk_percentage": 0.0,
+    "revenue_forecast": [
+      {
+        "period": "2026-05",
+        "display_name": "May 2026",
+        "revenue": 1734.92,
+        "type": "actual"
+      },
+      {
+        "period": "2026-06",
+        "display_name": "Jun 2026",
+        "revenue": 2329.89,
+        "type": "actual"
+      },
+      {
+        "period": "2026-07",
+        "display_name": "Jul 2026",
+        "revenue": 411.98,
+        "type": "actual"
+      },
+      {
+        "period": "2026-08",
+        "display_name": "Aug 2026",
+        "revenue": 1051.2833333333333,
+        "type": "forecast"
+      },
+      {
+        "period": "2026-09",
+        "display_name": "Sep 2026",
+        "revenue": 610.3033333333333,
+        "type": "forecast"
+      },
+      {
+        "period": "2026-10",
+        "display_name": "Oct 2026",
+        "revenue": 169.32333333333327,
+        "type": "forecast"
+      }
+    ],
+    "customer_segments": [
+      {
+        "name": "Champions",
+        "color": "#22c55e",
+        "customers": 5,
+        "total_revenue": 1654.9,
+        "avg_revenue": 330.98
+      },
+      {
+        "name": "Cannot Lose Them",
+        "color": "#dc2626",
+        "customers": 4,
+        "total_revenue": 1165.97,
+        "avg_revenue": 291.4925
+      },
+      {
+        "name": "Hibernating",
+        "color": "#64748b",
+        "customers": 3,
+        "total_revenue": 228.98,
+        "avg_revenue": 76.32666666666667
+      },
+      {
+        "name": "Potential Loyalist",
+        "color": "#8b5cf6",
+        "customers": 3,
+        "total_revenue": 474.98,
+        "avg_revenue": 158.32666666666668
+      },
+      {
+        "name": "New Customers",
+        "color": "#06b6d4",
+        "customers": 2,
+        "total_revenue": 306.98,
+        "avg_revenue": 153.49
+      },
+      {
+        "name": "At Risk",
+        "color": "#f97316",
+        "customers": 1,
+        "total_revenue": 147.99,
+        "avg_revenue": 147.99
+      },
+      {
+        "name": "Loyal Customers",
+        "color": "#3b82f6",
+        "customers": 1,
+        "total_revenue": 164.99,
+        "avg_revenue": 164.99
+      },
+      {
+        "name": "Need Attention",
+        "color": "#eab308",
+        "customers": 1,
+        "total_revenue": 332.0,
+        "avg_revenue": 332.0
+      }
+    ]
+  },
+  "top_products_by_revenue": {
+    "sort_by": "revenue",
+    "total_products": 8,
+    "data": [
+      {
+        "product_name": "Leather Jacket - Brown",
+        "total_revenue": 1260.0,
+        "total_quantity": 6,
+        "unique_orders": 6,
+        "avg_unit_price": 210.0,
+        "revenue_per_unit": 210.0
+      },
+      {
+        "product_name": "Ribbed Knit Set - Cream",
+        "total_revenue": 635.0,
+        "total_quantity": 7,
+        "unique_orders": 7,
+        "avg_unit_price": 90.71428571428571,
+        "revenue_per_unit": 90.71428571428571
+      },
+      {
+        "product_name": "Puffer Vest - Olive",
+        "total_revenue": 576.0,
+        "total_quantity": 6,
+        "unique_orders": 6,
+        "avg_unit_price": 96.0,
+        "revenue_per_unit": 96.0
+      },
+      {
+        "product_name": "Cargo Trousers - Khaki",
+        "total_revenue": 514.93,
+        "total_quantity": 7,
+        "unique_orders": 7,
+        "avg_unit_price": 69.28571428571429,
+        "revenue_per_unit": 73.56142857142856
+      },
+      {
+        "product_name": "Wide Leg Jeans - Blue",
+        "total_revenue": 484.0,
+        "total_quantity": 6,
+        "unique_orders": 6,
+        "avg_unit_price": 80.66666666666667,
+        "revenue_per_unit": 80.66666666666667
+      },
+      {
+        "product_name": "Oversized Hoodie - Black",
+        "total_revenue": 395.94,
+        "total_quantity": 6,
+        "unique_orders": 6,
+        "avg_unit_price": 61.5,
+        "revenue_per_unit": 65.99
+      },
+      {
+        "product_name": "Mini Skirt - Black",
+        "total_revenue": 337.97,
+        "total_quantity": 7,
+        "unique_orders": 5,
+        "avg_unit_price": 47.0,
+        "revenue_per_unit": 48.28142857142858
+      },
+      {
+        "product_name": "Slouchy Tee 3-Pack",
+        "total_revenue": 272.95,
+        "total_quantity": 7,
+        "unique_orders": 5,
+        "avg_unit_price": 36.4,
+        "revenue_per_unit": 38.99285714285714
+      }
+    ]
+  },
+  "top_products_by_volume": {
+    "sort_by": "volume",
+    "total_products": 8,
+    "data": [
+      {
+        "product_name": "Cargo Trousers - Khaki",
+        "total_revenue": 514.93,
+        "total_quantity": 7,
+        "unique_orders": 7,
+        "avg_unit_price": 69.28571428571429,
+        "revenue_per_unit": 73.56142857142856
+      },
+      {
+        "product_name": "Mini Skirt - Black",
+        "total_revenue": 337.97,
+        "total_quantity": 7,
+        "unique_orders": 5,
+        "avg_unit_price": 47.0,
+        "revenue_per_unit": 48.28142857142858
+      },
+      {
+        "product_name": "Ribbed Knit Set - Cream",
+        "total_revenue": 635.0,
+        "total_quantity": 7,
+        "unique_orders": 7,
+        "avg_unit_price": 90.71428571428571,
+        "revenue_per_unit": 90.71428571428571
+      },
+      {
+        "product_name": "Slouchy Tee 3-Pack",
+        "total_revenue": 272.95,
+        "total_quantity": 7,
+        "unique_orders": 5,
+        "avg_unit_price": 36.4,
+        "revenue_per_unit": 38.99285714285714
+      },
+      {
+        "product_name": "Leather Jacket - Brown",
+        "total_revenue": 1260.0,
+        "total_quantity": 6,
+        "unique_orders": 6,
+        "avg_unit_price": 210.0,
+        "revenue_per_unit": 210.0
+      },
+      {
+        "product_name": "Oversized Hoodie - Black",
+        "total_revenue": 395.94,
+        "total_quantity": 6,
+        "unique_orders": 6,
+        "avg_unit_price": 61.5,
+        "revenue_per_unit": 65.99
+      },
+      {
+        "product_name": "Puffer Vest - Olive",
+        "total_revenue": 576.0,
+        "total_quantity": 6,
+        "unique_orders": 6,
+        "avg_unit_price": 96.0,
+        "revenue_per_unit": 96.0
+      },
+      {
+        "product_name": "Wide Leg Jeans - Blue",
+        "total_revenue": 484.0,
+        "total_quantity": 6,
+        "unique_orders": 6,
+        "avg_unit_price": 80.66666666666667,
+        "revenue_per_unit": 80.66666666666667
+      }
+    ]
+  },
+  "revenue_trends_monthly": {
+    "period_type": "monthly",
+    "total_periods": 3,
+    "data": [
+      {
+        "period": "2026-05",
+        "revenue": 1734.92,
+        "orders": 19,
+        "change_percent": 0.0
+      },
+      {
+        "period": "2026-06",
+        "revenue": 2329.89,
+        "orders": 24,
+        "change_percent": 34.293800290503285
+      },
+      {
+        "period": "2026-07",
+        "revenue": 411.98,
+        "orders": 5,
+        "change_percent": -82.31762014515706
+      }
+    ]
+  },
+  "aov_trends_monthly": {
+    "period_type": "monthly",
+    "data": [
+      {
+        "period": "2026-05",
+        "aov": 91.31157894736843,
+        "total_revenue": 1734.92,
+        "total_orders": 19,
+        "change_percent": 0.0
+      },
+      {
+        "period": "2026-06",
+        "aov": 97.07875,
+        "total_revenue": 2329.89,
+        "total_orders": 24,
+        "change_percent": 6.315925229981767
+      },
+      {
+        "period": "2026-07",
+        "aov": 82.396,
+        "total_revenue": 411.98,
+        "total_orders": 5,
+        "change_percent": -15.124576696753921
+      }
+    ]
+  },
+  "customer_analysis": {
+    "data": [
+      {
+        "period": "2026-05",
+        "new_customers": 10,
+        "returning_customers": 0,
+        "total_customers": 10,
+        "new_customer_revenue": 1734.92,
+        "returning_customer_revenue": 0.0,
+        "returning_percentage": 0.0
+      },
+      {
+        "period": "2026-06",
+        "new_customers": 10,
+        "returning_customers": 7,
+        "total_customers": 17,
+        "new_customer_revenue": 1469.94,
+        "returning_customer_revenue": 859.95,
+        "returning_percentage": 41.17647058823529
+      },
+      {
+        "period": "2026-07",
+        "new_customers": 0,
+        "returning_customers": 5,
+        "total_customers": 5,
+        "new_customer_revenue": 0.0,
+        "returning_customer_revenue": 411.98,
+        "returning_percentage": 100.0
+      }
+    ]
+  },
+  "geographic_analysis": {
+    "location_column": "customer_location",
+    "total_locations": 18,
+    "data": [
+      {
+        "location": "London",
+        "total_revenue": 899.96,
+        "unique_customers": 3,
+        "total_orders": 9,
+        "avg_revenue_per_customer": 299.9866666666667
+      },
+      {
+        "location": "Manchester",
+        "total_revenue": 417.99,
+        "unique_customers": 1,
+        "total_orders": 4,
+        "avg_revenue_per_customer": 417.99
+      },
+      {
+        "location": "Los Angeles",
+        "total_revenue": 350.0,
+        "unique_customers": 1,
+        "total_orders": 2,
+        "avg_revenue_per_customer": 350.0
+      },
+      {
+        "location": "Chicago",
+        "total_revenue": 332.0,
+        "unique_customers": 1,
+        "total_orders": 2,
+        "avg_revenue_per_customer": 332.0
+      },
+      {
+        "location": "New York",
+        "total_revenue": 322.97,
+        "unique_customers": 1,
+        "total_orders": 4,
+        "avg_revenue_per_customer": 322.97
+      },
+      {
+        "location": "Bristol",
+        "total_revenue": 272.98,
+        "unique_customers": 1,
+        "total_orders": 4,
+        "avg_revenue_per_customer": 272.98
+      },
+      {
+        "location": "Edinburgh",
+        "total_revenue": 243.99,
+        "unique_customers": 1,
+        "total_orders": 3,
+        "avg_revenue_per_customer": 243.99
+      },
+      {
+        "location": "Birmingham",
+        "total_revenue": 202.98,
+        "unique_customers": 1,
+        "total_orders": 3,
+        "avg_revenue_per_customer": 202.98
+      },
+      {
+        "location": "Brighton",
+        "total_revenue": 195.0,
+        "unique_customers": 1,
+        "total_orders": 1,
+        "avg_revenue_per_customer": 195.0
+      },
+      {
+        "location": "Seattle",
+        "total_revenue": 182.99,
+        "unique_customers": 1,
+        "total_orders": 2,
+        "avg_revenue_per_customer": 182.99
+      },
+      {
+        "location": "Miami",
+        "total_revenue": 164.99,
+        "unique_customers": 1,
+        "total_orders": 2,
+        "avg_revenue_per_customer": 164.99
+      },
+      {
+        "location": "Liverpool",
+        "total_revenue": 164.0,
+        "unique_customers": 1,
+        "total_orders": 2,
+        "avg_revenue_per_customer": 164.0
+      },
+      {
+        "location": "Glasgow",
+        "total_revenue": 158.99,
+        "unique_customers": 1,
+        "total_orders": 2,
+        "avg_revenue_per_customer": 158.99
+      },
+      {
+        "location": "Houston",
+        "total_revenue": 151.99,
+        "unique_customers": 1,
+        "total_orders": 2,
+        "avg_revenue_per_customer": 151.99
+      },
+      {
+        "location": "Leeds",
+        "total_revenue": 147.99,
+        "unique_customers": 1,
+        "total_orders": 2,
+        "avg_revenue_per_customer": 147.99
+      },
+      {
+        "location": "Sheffield",
+        "total_revenue": 123.99000000000001,
+        "unique_customers": 1,
+        "total_orders": 2,
+        "avg_revenue_per_customer": 123.99000000000001
+      },
+      {
+        "location": "Denver",
+        "total_revenue": 84.99,
+        "unique_customers": 1,
+        "total_orders": 1,
+        "avg_revenue_per_customer": 84.99
+      },
+      {
+        "location": "Oxford",
+        "total_revenue": 58.99,
+        "unique_customers": 1,
+        "total_orders": 1,
+        "avg_revenue_per_customer": 58.99
+      }
+    ]
+  },
+  "order_volume_trends_monthly": {
+    "period_type": "monthly",
+    "has_quantity_data": true,
+    "data": [
+      {
+        "period": "2026-05",
+        "order_count": 19,
+        "total_items": 21,
+        "avg_items_per_order": 1.105263157894737,
+        "change_percent": 0.0
+      },
+      {
+        "period": "2026-06",
+        "order_count": 24,
+        "total_items": 25,
+        "avg_items_per_order": 1.0416666666666667,
+        "change_percent": 26.315789473684205
+      },
+      {
+        "period": "2026-07",
+        "order_count": 5,
+        "total_items": 6,
+        "avg_items_per_order": 1.2,
+        "change_percent": -79.16666666666666
+      }
+    ]
+  },
+  "revenue_per_customer": {
+    "summary": {
+      "total_customers": 20,
+      "total_revenue": 4476.789999999999,
+      "avg_revenue_per_customer": 223.83949999999996,
+      "avg_orders_per_customer": 2.4,
+      "avg_revenue_per_order": 96.14905
+    },
+    "segments": [
+      {
+        "segment": "Low",
+        "customer_count": 5,
+        "avg_revenue_per_customer": 100.19200000000001,
+        "total_segment_revenue": 500.96000000000004,
+        "avg_orders_per_customer": 1.4,
+        "avg_revenue_per_order": 72.994,
+        "avg_customer_lifetime_days": 7.0
+      },
+      {
+        "segment": "Medium",
+        "customer_count": 5,
+        "avg_revenue_per_customer": 164.592,
+        "total_segment_revenue": 822.96,
+        "avg_orders_per_customer": 2.0,
+        "avg_revenue_per_order": 82.296,
+        "avg_customer_lifetime_days": 16.6
+      },
+      {
+        "segment": "High",
+        "customer_count": 5,
+        "avg_revenue_per_customer": 247.584,
+        "total_segment_revenue": 1237.92,
+        "avg_orders_per_customer": 3.0,
+        "avg_revenue_per_order": 98.5955,
+        "avg_customer_lifetime_days": 33.8
+      },
+      {
+        "segment": "Premium",
+        "customer_count": 5,
+        "avg_revenue_per_customer": 382.99,
+        "total_segment_revenue": 1914.95,
+        "avg_orders_per_customer": 3.2,
+        "avg_revenue_per_order": 130.7107,
+        "avg_customer_lifetime_days": 35.6
+      }
+    ],
+    "top_customers": [
+      {
+        "customer_email": "sarah.chen@gmail.com",
+        "total_revenue": 476.98,
+        "total_orders": 5,
+        "revenue_per_order": 95.396,
+        "lifetime_days": 60
+      },
+      {
+        "customer_email": "james.wilson@outlook.com",
+        "total_revenue": 417.99,
+        "total_orders": 4,
+        "revenue_per_order": 104.4975,
+        "lifetime_days": 43
+      },
+      {
+        "customer_email": "luke.henderson@yahoo.com",
+        "total_revenue": 350.0,
+        "total_orders": 2,
+        "revenue_per_order": 175.0,
+        "lifetime_days": 14
+      },
+      {
+        "customer_email": "priya.sharma@gmail.com",
+        "total_revenue": 337.98,
+        "total_orders": 3,
+        "revenue_per_order": 112.66000000000001,
+        "lifetime_days": 45
+      },
+      {
+        "customer_email": "daniel.brooks@gmail.com",
+        "total_revenue": 332.0,
+        "total_orders": 2,
+        "revenue_per_order": 166.0,
+        "lifetime_days": 16
+      },
+      {
+        "customer_email": "mike.okafor@gmail.com",
+        "total_revenue": 322.97,
+        "total_orders": 4,
+        "revenue_per_order": 80.7425,
+        "lifetime_days": 51
+      },
+      {
+        "customer_email": "emma.thompson@icloud.com",
+        "total_revenue": 272.98,
+        "total_orders": 4,
+        "revenue_per_order": 68.245,
+        "lifetime_days": 53
+      },
+      {
+        "customer_email": "amara.diallo@gmail.com",
+        "total_revenue": 243.99,
+        "total_orders": 3,
+        "revenue_per_order": 81.33,
+        "lifetime_days": 40
+      },
+      {
+        "customer_email": "olivia.park@hotmail.com",
+        "total_revenue": 202.98,
+        "total_orders": 3,
+        "revenue_per_order": 67.66,
+        "lifetime_days": 24
+      },
+      {
+        "customer_email": "alex.riley@outlook.com",
+        "total_revenue": 195.0,
+        "total_orders": 1,
+        "revenue_per_order": 195.0,
+        "lifetime_days": 1
+      }
+    ],
+    "has_date_data": true
+  }
+}
