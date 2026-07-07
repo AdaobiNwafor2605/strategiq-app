@@ -1,0 +1,49 @@
+Order ID,Email,Financial Status,Created at,Currency,Subtotal,Shipping,Taxes,Total,Lineitem quantity,Lineitem name,Lineitem price,Billing Name,Billing City,Billing Country
+#1001,sarah.chen@gmail.com,paid,2026-05-08 09:15:00 +0000,GBP,85.00,0.00,0.00,85.00,1,Ribbed Knit Set - Cream,85.00,Sarah Chen,London,United Kingdom
+#1002,james.wilson@outlook.com,paid,2026-05-09 14:22:00 +0000,GBP,195.00,0.00,0.00,195.00,1,Leather Jacket - Brown,195.00,James Wilson,Manchester,United Kingdom
+#1003,emma.thompson@icloud.com,paid,2026-05-10 11:08:00 +0000,GBP,75.00,0.00,0.00,75.00,1,Wide Leg Jeans - Blue,75.00,Emma Thompson,Bristol,United Kingdom
+#1004,olivia.park@hotmail.com,paid,2026-05-11 16:45:00 +0000,GBP,65.00,3.99,0.00,68.99,1,Cargo Trousers - Khaki,65.00,Olivia Park,Birmingham,United Kingdom
+#1005,mike.okafor@gmail.com,paid,2026-05-12 20:30:00 +0000,USD,68.00,4.99,0.00,72.99,1,Oversized Hoodie - Black,68.00,Mike Okafor,New York,United States
+#1006,luke.henderson@yahoo.com,paid,2026-05-14 13:17:00 +0000,USD,110.00,0.00,0.00,110.00,1,Puffer Vest - Olive,110.00,Luke Henderson,Los Angeles,United States
+#1007,priya.sharma@gmail.com,paid,2026-05-16 10:05:00 +0000,GBP,70.00,3.99,0.00,73.99,2,Slouchy Tee 3-Pack,35.00,Priya Sharma,London,United Kingdom
+#1008,amara.diallo@gmail.com,paid,2026-05-18 17:33:00 +0000,GBP,90.00,0.00,0.00,90.00,2,Mini Skirt - Black,45.00,Amara Diallo,Edinburgh,United Kingdom
+#1009,charlotte.lewis@gmail.com,paid,2026-05-19 12:20:00 +0000,GBP,55.00,3.99,0.00,58.99,1,Oversized Hoodie - Black,55.00,Charlotte Lewis,Leeds,United Kingdom
+#1010,grace.wong@gmail.com,paid,2026-05-21 09:40:00 +0000,GBP,85.00,0.00,0.00,85.00,1,Ribbed Knit Set - Cream,85.00,Grace Wong,London,United Kingdom
+#1011,sarah.chen@gmail.com,paid,2026-05-22 15:55:00 +0000,GBP,89.00,0.00,0.00,89.00,1,Puffer Vest - Olive,89.00,Sarah Chen,London,United Kingdom
+#1012,james.wilson@outlook.com,paid,2026-05-23 11:30:00 +0000,GBP,75.00,0.00,0.00,75.00,1,Wide Leg Jeans - Blue,75.00,James Wilson,Manchester,United Kingdom
+#1013,emma.thompson@icloud.com,voided,2026-05-24 08:15:00 +0000,GBP,35.00,3.99,0.00,38.99,1,Slouchy Tee 3-Pack,35.00,Emma Thompson,Bristol,United Kingdom
+#1014,olivia.park@hotmail.com,paid,2026-05-25 14:10:00 +0000,GBP,45.00,3.99,0.00,48.99,1,Mini Skirt - Black,45.00,Olivia Park,Birmingham,United Kingdom
+#1015,mike.okafor@gmail.com,paid,2026-05-26 19:45:00 +0000,USD,80.00,4.99,0.00,84.99,1,Cargo Trousers - Khaki,80.00,Mike Okafor,New York,United States
+#1016,luke.henderson@yahoo.com,paid,2026-05-27 16:20:00 +0000,USD,240.00,0.00,0.00,240.00,1,Leather Jacket - Brown,240.00,Luke Henderson,Los Angeles,United States
+#1017,priya.sharma@gmail.com,paid,2026-05-28 10:48:00 +0000,GBP,65.00,3.99,0.00,68.99,1,Cargo Trousers - Khaki,65.00,Priya Sharma,London,United Kingdom
+#1018,amara.diallo@gmail.com,paid,2026-05-29 13:25:00 +0000,GBP,85.00,0.00,0.00,85.00,1,Ribbed Knit Set - Cream,85.00,Amara Diallo,Edinburgh,United Kingdom
+#1019,charlotte.lewis@gmail.com,paid,2026-05-30 17:00:00 +0000,GBP,89.00,0.00,0.00,89.00,1,Puffer Vest - Olive,89.00,Charlotte Lewis,Leeds,United Kingdom
+#1020,sarah.chen@gmail.com,paid,2026-06-01 09:30:00 +0000,GBP,195.00,0.00,0.00,195.00,1,Leather Jacket - Brown,195.00,Sarah Chen,London,United Kingdom
+#1021,james.wilson@outlook.com,paid,2026-06-02 14:55:00 +0000,GBP,55.00,3.99,0.00,58.99,1,Oversized Hoodie - Black,55.00,James Wilson,Manchester,United Kingdom
+#1022,emma.thompson@icloud.com,paid,2026-06-03 11:12:00 +0000,GBP,65.00,3.99,0.00,68.99,1,Cargo Trousers - Khaki,65.00,Emma Thompson,Bristol,United Kingdom
+#1023,olivia.park@hotmail.com,paid,2026-06-04 16:38:00 +0000,GBP,85.00,0.00,0.00,85.00,1,Ribbed Knit Set - Cream,85.00,Olivia Park,Birmingham,United Kingdom
+#1024,mike.okafor@gmail.com,paid,2026-06-05 20:15:00 +0000,USD,55.00,4.99,0.00,59.99,1,Mini Skirt - Black,55.00,Mike Okafor,New York,United States
+#1025,daniel.brooks@gmail.com,paid,2026-06-07 10:22:00 +0000,USD,92.00,0.00,0.00,92.00,1,Wide Leg Jeans - Blue,92.00,Daniel Brooks,Chicago,United States
+#1026,sofia.martinez@gmail.com,paid,2026-06-09 13:40:00 +0000,USD,68.00,4.99,0.00,72.99,1,Oversized Hoodie - Black,68.00,Sofia Martinez,Miami,United States
+#1027,noah.baker@gmail.com,paid,2026-06-10 09:05:00 +0000,GBP,70.00,3.99,0.00,73.99,2,Slouchy Tee 3-Pack,35.00,Noah Baker,Glasgow,United Kingdom
+#1028,ryan.thomas@gmail.com,paid,2026-06-11 15:30:00 +0000,USD,105.00,0.00,0.00,105.00,1,Ribbed Knit Set - Cream,105.00,Ryan Thomas,Houston,United States
+#1029,isabelle.martin@gmail.com,paid,2026-06-12 12:18:00 +0000,GBP,75.00,0.00,0.00,75.00,1,Wide Leg Jeans - Blue,75.00,Isabelle Martin,Liverpool,United Kingdom
+#1030,ethan.james@hotmail.com,paid,2026-06-13 17:45:00 +0000,GBP,45.00,3.99,0.00,48.99,1,Mini Skirt - Black,45.00,Ethan James,Sheffield,United Kingdom
+#1031,chloe.scott@gmail.com,paid,2026-06-14 11:00:00 +0000,USD,110.00,0.00,0.00,110.00,1,Puffer Vest - Olive,110.00,Chloe Scott,Seattle,United States
+#1032,alex.riley@outlook.com,paid,2026-06-15 14:27:00 +0000,GBP,195.00,0.00,0.00,195.00,1,Leather Jacket - Brown,195.00,Alex Riley,Brighton,United Kingdom
+#1033,jessica.ford@gmail.com,paid,2026-06-17 10:50:00 +0000,USD,80.00,4.99,0.00,84.99,1,Cargo Trousers - Khaki,80.00,Jessica Ford,Denver,United States
+#1034,tom.nguyen@gmail.com,paid,2026-06-18 16:15:00 +0000,GBP,55.00,3.99,0.00,58.99,1,Oversized Hoodie - Black,55.00,Tom Nguyen,Oxford,United Kingdom
+#1035,sarah.chen@gmail.com,paid,2026-06-20 09:00:00 +0000,GBP,35.00,3.99,0.00,38.99,1,Slouchy Tee 3-Pack,35.00,Sarah Chen,London,United Kingdom
+#1036,james.wilson@outlook.com,paid,2026-06-21 13:35:00 +0000,GBP,89.00,0.00,0.00,89.00,1,Puffer Vest - Olive,89.00,James Wilson,Manchester,United Kingdom
+#1037,daniel.brooks@gmail.com,paid,2026-06-22 18:20:00 +0000,USD,240.00,0.00,0.00,240.00,1,Leather Jacket - Brown,240.00,Daniel Brooks,Chicago,United States
+#1038,sofia.martinez@gmail.com,paid,2026-06-23 10:45:00 +0000,USD,92.00,0.00,0.00,92.00,1,Wide Leg Jeans - Blue,92.00,Sofia Martinez,Miami,United States
+#1039,noah.baker@gmail.com,paid,2026-06-25 15:10:00 +0000,GBP,85.00,0.00,0.00,85.00,1,Ribbed Knit Set - Cream,85.00,Noah Baker,Glasgow,United Kingdom
+#1040,ryan.thomas@gmail.com,paid,2026-06-26 11:28:00 +0000,USD,42.00,4.99,0.00,46.99,1,Slouchy Tee 3-Pack,42.00,Ryan Thomas,Houston,United States
+#1041,amara.diallo@gmail.com,paid,2026-06-27 14:55:00 +0000,GBP,65.00,3.99,0.00,68.99,1,Cargo Trousers - Khaki,65.00,Amara Diallo,Edinburgh,United Kingdom
+#1042,isabelle.martin@gmail.com,paid,2026-06-28 09:20:00 +0000,GBP,89.00,0.00,0.00,89.00,1,Puffer Vest - Olive,89.00,Isabelle Martin,Liverpool,United Kingdom
+#1043,priya.sharma@gmail.com,paid,2026-06-29 16:40:00 +0000,GBP,195.00,0.00,0.00,195.00,1,Leather Jacket - Brown,195.00,Priya Sharma,London,United Kingdom
+#1044,emma.thompson@icloud.com,paid,2026-07-01 12:05:00 +0000,GBP,90.00,0.00,0.00,90.00,2,Mini Skirt - Black,45.00,Emma Thompson,Bristol,United Kingdom
+#1045,mike.okafor@gmail.com,paid,2026-07-02 17:30:00 +0000,USD,105.00,0.00,0.00,105.00,1,Ribbed Knit Set - Cream,105.00,Mike Okafor,New York,United States
+#1046,ethan.james@hotmail.com,voided,2026-07-03 10:15:00 +0000,GBP,75.00,0.00,0.00,75.00,1,Wide Leg Jeans - Blue,75.00,Ethan James,Sheffield,United Kingdom
+#1047,chloe.scott@gmail.com,paid,2026-07-05 14:50:00 +0000,USD,68.00,4.99,0.00,72.99,1,Oversized Hoodie - Black,68.00,Chloe Scott,Seattle,United States
+#1048,sarah.chen@gmail.com,paid,2026-07-06 11:35:00 +0000,GBP,65.00,3.99,0.00,68.99,1,Cargo Trousers - Khaki,65.00,Sarah Chen,London,United Kingdom
