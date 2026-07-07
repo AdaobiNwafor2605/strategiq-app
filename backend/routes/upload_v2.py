@@ -290,6 +290,21 @@ def _run_pipeline(
         if rename_map:
             df = df.rename(columns=rename_map)
 
+    # Normalize common non-standard column names that exact-match detection would miss.
+    # These run after user mapping so user overrides take priority.
+    _EXTRA_RENAMES = {
+        'order_quantity': 'quantity',
+        'order_qty': 'quantity',
+        'lineitem_quantity': 'quantity',
+        'product_price': 'unit_price',
+        'item_price': 'unit_price',
+        'price_per_item': 'unit_price',
+        'order_price': 'unit_price',
+    }
+    for src, dst in _EXTRA_RENAMES.items():
+        if src in df.columns and dst not in df.columns and src not in rename_map:
+            df = df.rename(columns={src: dst})
+
     # Auto-detect any remaining columns not covered by user mapping
     already_mapped_originals = set(rename_map.keys())
     column_mappings: Dict[str, str] = {}

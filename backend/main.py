@@ -211,36 +211,42 @@ async def get_top_products(
         df = _user_data.get(user_id)
         if df is None:
             return {"error": "No sales data available", "data": []}
-        required_cols = ['product_name', 'total', 'quantity']
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            return {"error": f"Missing columns: {missing_cols}", "data": []}
-        
+        if 'product_name' not in df.columns or 'total' not in df.columns:
+            return {"error": "Missing columns: product_name or total", "data": []}
+
+        has_quantity = 'quantity' in df.columns
+        has_price = 'unit_price' in df.columns
+
+        # Build agg dict with only the columns that exist
+        agg_dict: dict = {'total': 'sum'}
+        if has_quantity:
+            agg_dict['quantity'] = 'sum'
+        if 'order_id' in df.columns:
+            agg_dict['order_id'] = 'nunique'
+        if has_price:
+            agg_dict['unit_price'] = 'mean'
+
         # Group by product and calculate metrics
-        product_stats = df.groupby('product_name').agg({
-            'total': 'sum',
-            'quantity': 'sum',
-            'order_id': 'nunique',
-            'unit_price': 'mean'
-        }).reset_index()
-        
+        product_stats = df.groupby('product_name').agg(agg_dict).reset_index()
+
         # Sort by specified metric
-        if sort_by == "volume":
+        if sort_by == "volume" and has_quantity:
             product_stats = product_stats.sort_values('quantity', ascending=False)
         else:
             product_stats = product_stats.sort_values('total', ascending=False)
-        
+
         # Limit results and format
         top_products = product_stats.head(limit)
         products_data = []
         for _, row in top_products.iterrows():
+            qty = int(row['quantity']) if has_quantity else 0
             products_data.append({
                 "product_name": row['product_name'],
                 "total_revenue": float(row['total']),
-                "total_quantity": int(row['quantity']),
-                "unique_orders": int(row['order_id']),
-                "avg_unit_price": float(row['unit_price']) if pd.notna(row['unit_price']) else 0.0,
-                "revenue_per_unit": float(row['total'] / row['quantity']) if row['quantity'] > 0 else 0.0
+                "total_quantity": qty,
+                "unique_orders": int(row['order_id']) if 'order_id' in product_stats.columns else 0,
+                "avg_unit_price": float(row['unit_price']) if has_price and pd.notna(row['unit_price']) else 0.0,
+                "revenue_per_unit": float(row['total'] / qty) if qty > 0 else 0.0
             })
         
         return {"sort_by": sort_by, "total_products": len(product_stats), "data": products_data}
@@ -366,47 +372,53 @@ async def get_customer_analysis(
         df = _user_data.get(user_id)
         if df is None:
             return {"error": "No sales data available", "data": []}
-        if 'customer_email' not in df.columns or 'order_date' not in df.columns:
+        # Accept either customer_email (Shopify) or customer_id (non-Shopify datasets)
+        cust_col = (
+            'customer_email' if 'customer_email' in df.columns
+            else 'customer_id' if 'customer_id' in df.columns
+            else None
+        )
+        if cust_col is None or 'order_date' not in df.columns:
             return {"error": "Required columns missing", "data": []}
-        
+
         df['order_date'] = pd.to_datetime(df['order_date'], errors='coerce')
         valid_data = df[df['order_date'].notna()].copy()
-        
+
         if len(valid_data) == 0:
             return {"error": "No valid date data", "data": []}
-        
+
         # Get first order date for each customer
-        customer_first_orders = valid_data.groupby('customer_email')['order_date'].min().reset_index()
-        customer_first_orders.columns = ['customer_email', 'first_order_date']
-        
+        customer_first_orders = valid_data.groupby(cust_col)['order_date'].min().reset_index()
+        customer_first_orders.columns = [cust_col, 'first_order_date']
+
         # Merge back with original data
-        analysis_data = valid_data.merge(customer_first_orders, on='customer_email')
+        analysis_data = valid_data.merge(customer_first_orders, on=cust_col)
         analysis_data['order_period'] = analysis_data['order_date'].dt.to_period('M')
         analysis_data['first_order_period'] = analysis_data['first_order_date'].dt.to_period('M')
-        
+
         # Classify customers
         analysis_data['customer_type'] = analysis_data.apply(
             lambda row: 'New' if row['order_period'] == row['first_order_period'] else 'Returning',
             axis=1
         )
-        
+
         # Group by period and customer type
         customer_trends = analysis_data.groupby(['order_period', 'customer_type']).agg({
-            'customer_email': 'nunique',
+            cust_col: 'nunique',
             'total': 'sum'
         }).reset_index()
-        
+
         # Format response data
         analysis_result = []
         periods = customer_trends['order_period'].unique()
-        
+
         for period in periods:
             period_data = customer_trends[customer_trends['order_period'] == period]
             new_data = period_data[period_data['customer_type'] == 'New']
             returning_data = period_data[period_data['customer_type'] == 'Returning']
-            
-            new_customers = int(new_data['customer_email'].sum()) if len(new_data) > 0 else 0
-            returning_customers = int(returning_data['customer_email'].sum()) if len(returning_data) > 0 else 0
+
+            new_customers = int(new_data[cust_col].sum()) if len(new_data) > 0 else 0
+            returning_customers = int(returning_data[cust_col].sum()) if len(returning_data) > 0 else 0
             total_customers = new_customers + returning_customers
             
             analysis_result.append({
@@ -450,25 +462,32 @@ async def get_geographic_analysis(
             else:
                 return {"error": "No location data found in uploaded files", "data": [], "available_columns": list(df.columns)}
         
+        # Accept customer_email or customer_id
+        geo_cust_col = (
+            'customer_email' if 'customer_email' in df.columns
+            else 'customer_id' if 'customer_id' in df.columns
+            else None
+        )
+        agg_spec: dict = {'total': 'sum', 'order_id': 'nunique'}
+        if geo_cust_col:
+            agg_spec[geo_cust_col] = 'nunique'
+
         # Group by location and calculate metrics
-        geo_stats = df.groupby(location_col).agg({
-            'total': 'sum',
-            'customer_email': 'nunique',
-            'order_id': 'nunique'
-        }).reset_index()
-        
+        geo_stats = df.groupby(location_col).agg(agg_spec).reset_index()
+
         # Sort by revenue
         geo_stats = geo_stats.sort_values('total', ascending=False)
-        
+
         # Format response
         geo_data = []
         for _, row in geo_stats.iterrows():
+            unique_custs = int(row[geo_cust_col]) if geo_cust_col else 0
             geo_data.append({
                 "location": str(row[location_col]),
                 "total_revenue": float(row['total']),
-                "unique_customers": int(row['customer_email']),
+                "unique_customers": unique_custs,
                 "total_orders": int(row['order_id']),
-                "avg_revenue_per_customer": float(row['total'] / row['customer_email']) if row['customer_email'] > 0 else 0.0
+                "avg_revenue_per_customer": float(row['total'] / unique_custs) if unique_custs > 0 else 0.0
             })
         
         return {
@@ -565,31 +584,33 @@ async def get_revenue_per_customer(
         if df is None:
             return {"error": "No sales data available", "data": []}
         
-        # Check required columns
-        required_cols = ['customer_email', 'total']
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            return {"error": f"Missing required columns: {missing_cols}", "data": [], "available_columns": list(df.columns)}
-        
+        # Accept customer_email (Shopify) or customer_id (non-Shopify datasets)
+        cust_col = (
+            'customer_email' if 'customer_email' in df.columns
+            else 'customer_id' if 'customer_id' in df.columns
+            else None
+        )
+        if cust_col is None or 'total' not in df.columns:
+            return {"error": "Missing required columns: customer identifier and total", "data": [], "available_columns": list(df.columns)}
+
         # Calculate customer metrics
-        customer_stats = df.groupby('customer_email').agg({
-            'total': 'sum',
-            'order_id': 'nunique',
-            'order_date': ['min', 'max'] if 'order_date' in df.columns else 'count'
-        }).reset_index()
-        
+        agg_spec: dict = {'total': 'sum', 'order_id': 'nunique'}
+        if 'order_date' in df.columns:
+            agg_spec['order_date'] = ['min', 'max']
+        customer_stats = df.groupby(cust_col).agg(agg_spec).reset_index()
+
         # Handle column names based on available data
         if 'order_date' in df.columns:
-            customer_stats.columns = ['customer_email', 'total_revenue', 'total_orders', 'first_order', 'last_order']
-            
+            customer_stats.columns = [cust_col, 'total_revenue', 'total_orders', 'first_order', 'last_order']
+
             # Convert dates and calculate customer lifetime
             customer_stats['first_order'] = pd.to_datetime(customer_stats['first_order'], errors='coerce')
             customer_stats['last_order'] = pd.to_datetime(customer_stats['last_order'], errors='coerce')
             customer_stats['lifetime_days'] = (customer_stats['last_order'] - customer_stats['first_order']).dt.days + 1
-            customer_stats['lifetime_days'] = customer_stats['lifetime_days'].fillna(1)  # Single purchase = 1 day
+            customer_stats['lifetime_days'] = customer_stats['lifetime_days'].fillna(1)
         else:
-            customer_stats.columns = ['customer_email', 'total_revenue', 'total_orders', 'order_count']
-            customer_stats['lifetime_days'] = 1  # Default if no date data
+            customer_stats.columns = [cust_col, 'total_revenue', 'total_orders', 'order_count']
+            customer_stats['lifetime_days'] = 1
         
         # Calculate revenue per order
         customer_stats['revenue_per_order'] = customer_stats['total_revenue'] / customer_stats['total_orders']
@@ -611,7 +632,7 @@ async def get_revenue_per_customer(
         segments_data = []
         if customer_stats['revenue_quartile'].nunique() > 1:
             segment_analysis = customer_stats.groupby('revenue_quartile').agg({
-                'customer_email': 'count',
+                cust_col: 'count',
                 'total_revenue': ['mean', 'sum'],
                 'total_orders': 'mean',
                 'revenue_per_order': 'mean',
@@ -639,7 +660,7 @@ async def get_revenue_per_customer(
         top_customers_data = []
         for _, row in top_customers.iterrows():
             top_customers_data.append({
-                "customer_email": str(row['customer_email']),
+                "customer_id": str(row[cust_col]),
                 "total_revenue": float(row['total_revenue']),
                 "total_orders": int(row['total_orders']),
                 "revenue_per_order": float(row['revenue_per_order']),
@@ -702,7 +723,7 @@ async def check_data_insights_availability(
             "data_overview": {
                 "total_rows": len(df),
                 "columns_available": columns,
-                "unique_customers": df['customer_email'].nunique() if 'customer_email' in columns else 0,
+                "unique_customers": df['customer_email'].nunique() if 'customer_email' in columns else (df['customer_id'].nunique() if 'customer_id' in columns else 0),
                 "unique_orders": df['order_id'].nunique() if 'order_id' in columns else 0,
                 "unique_products": df['product_name'].nunique() if 'product_name' in columns else 0
             }
@@ -717,16 +738,17 @@ async def check_data_insights_availability(
             "recommendation": ""
         }
         
-        # Check required columns for repeat purchase
-        repeat_required = ["customer_email", "order_date", "order_id"]
+        # Check required columns for repeat purchase (accept customer_id in place of customer_email)
+        _cust = 'customer_email' if 'customer_email' in columns else ('customer_id' if 'customer_id' in columns else None)
+        repeat_required = [_cust or "customer_email", "order_date", "order_id"]
         repeat_missing = [col for col in repeat_required if col not in columns]
-        
-        if not repeat_missing:
+
+        if not repeat_missing and _cust:
             # All columns present, check data quality
             repeat_analysis["requirements_met"]["has_required_columns"] = True
-            
+
             # Check if customers have multiple orders
-            customer_order_counts = df.groupby('customer_email')['order_id'].nunique()
+            customer_order_counts = df.groupby(_cust)['order_id'].nunique()
             repeat_customers = int((customer_order_counts > 1).sum())
             total_customers = len(customer_order_counts)
             avg_orders_per_customer = float(customer_order_counts.mean())
