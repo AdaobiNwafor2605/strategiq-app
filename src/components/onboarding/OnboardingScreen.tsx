@@ -12,9 +12,10 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onNavigate }
   const { user, markOnboardingSeen } = useAuth();
 
   useEffect(() => {
-    // Mark immediately so this screen is never shown again on login
-    markOnboardingSeen();
-  }, []);
+    // Depend on user.id so the call uses the correct user closure, not a stale one
+    if (user?.id) markOnboardingSeen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const steps = [
     {

@@ -29,7 +29,9 @@ type Page =
   | 'premium'
   | 'profile';
 
-const PROTECTED: Page[] = ['dashboard', 'upload', 'analytics', 'premium', 'profile', 'onboarding'];
+// 'onboarding' is intentionally omitted — it's only ever shown via explicit routing,
+// so logging out while on that screen should never set intendedPage = 'onboarding'
+const PROTECTED: Page[] = ['dashboard', 'upload', 'analytics', 'premium', 'profile'];
 
 const AppContent: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>('landing');
@@ -38,7 +40,7 @@ const AppContent: React.FC = () => {
   const [isSampleData, setIsSampleData] = useState(false);
   // Remember where a logged-out user was trying to go, so we can send them there after login
   const [intendedPage, setIntendedPage] = useState<Page | null>(null);
-  const { user, unverifiedEmail, authEvent, clearAuthEvent, isLoading } = useAuth();
+  const { user, unverifiedEmail, authEvent, clearAuthEvent, isLoading, markCsvUploaded } = useAuth();
 
   useEffect(() => {
     // Password reset link clicked — Supabase fires PASSWORD_RECOVERY event
@@ -69,12 +71,12 @@ const AppContent: React.FC = () => {
       if (onPublicPage) {
         if (!user.hasSeenOnboarding) {
           setCurrentPage('onboarding');
-        } else if (intendedPage) {
-          // Send them to the page they originally tried to visit
-          setCurrentPage(intendedPage);
-          setIntendedPage(null);
         } else {
-          setCurrentPage('upload');
+          // Never send back to onboarding via intendedPage — go to the intended page
+          // or the upload page as the default post-login destination
+          const dest = intendedPage && intendedPage !== 'onboarding' ? intendedPage : 'upload';
+          setCurrentPage(dest);
+          setIntendedPage(null);
         }
       }
     }
@@ -87,6 +89,8 @@ const AppContent: React.FC = () => {
     setUploadedAt(at);
     setIsSampleData(sample);
     setCurrentPage('dashboard');
+    // Mark as uploaded in the profile so the onboarding checklist shows it as done
+    if (!sample) markCsvUploaded();
   };
 
   const handleClearSampleData = () => {

@@ -94,8 +94,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const lastName = profile?.last_name ?? supabaseUser.user_metadata?.lastName ?? '';
     const displayName = [firstName, lastName].filter(Boolean).join(' ') || profile?.name || supabaseUser.email;
 
-    // localStorage fallback so onboarding doesn't re-appear on refresh before SQL migration runs
     const localSeen = localStorage.getItem(`strategiq_seen_${supabaseUser.id}`) === 'true';
+    // Accounts older than 10 minutes are returning users — covers existing profiles
+    // that predate the has_seen_onboarding column and cases where localStorage was cleared.
+    // The 10-minute window is generous enough for the signup → email verify → first login flow.
+    const accountAgeMs = Date.now() - new Date(supabaseUser.created_at).getTime();
+    const isNewAccount = accountAgeMs < 10 * 60 * 1000;
 
     return {
       id: supabaseUser.id,
@@ -114,9 +118,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       referralSource: profile?.referral_source ?? undefined,
       plan: profile?.plan ?? 'micro',
       createdAt: profile?.created_at ?? supabaseUser.created_at,
-      hasSeenOnboarding: profile?.has_seen_onboarding ?? localSeen,
+      // Seen if: DB says so, OR localStorage says so, OR account is older than 10 minutes
+      hasSeenOnboarding: profile?.has_seen_onboarding === true || localSeen || !isNewAccount,
       csvUploaded: profile?.csv_uploaded ?? false,
-      brandDetailsComplete: profile?.brand_details_complete ?? false,
+      // Derive from individual fields so existing profiles show as complete without a re-save
+      brandDetailsComplete: profile?.brand_details_complete
+        ?? !!(profile?.brand_name && profile?.industry_segment && profile?.country),
     };
   };
 
@@ -265,7 +272,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const logout = async () => {
-    if (user) localStorage.removeItem(`strategiq_seen_${user.id}`);
+    // Do NOT remove the seen flag here — it must survive across sessions so returning
+    // users never see onboarding again. It's only cleared on full account deletion.
     await supabase.auth.signOut();
     sessionStorage.removeItem('strategiq_session_only');
     setUser(null);
