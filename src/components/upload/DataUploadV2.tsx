@@ -196,7 +196,7 @@ export const DataUploadV2: React.FC<DataUploadV2Props> = ({
     const ext = selected.name.split('.').pop()?.toLowerCase() ?? '';
     if (!['csv', 'xlsx', 'xls'].includes(ext)) {
       setUploadError(
-        'That file type isn't supported. Please upload a CSV, XLSX or XLS file.\n' +
+        "That file type isn't supported. Please upload a CSV, XLSX or XLS file.\n" +
         'In Shopify: Orders → Export → Plain CSV for Excel.',
       );
       return;
