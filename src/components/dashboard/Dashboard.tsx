@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BarChart3, Users, TrendingUp, AlertTriangle, Brain, Target, Lock, DollarSign, ShoppingCart, AlertCircle } from 'lucide-react';
+import { BarChart3, Users, TrendingUp, AlertTriangle, Brain, Target, Lock, DollarSign, ShoppingCart, AlertCircle, Clock, Zap } from 'lucide-react';
 import { Card, CardHeader, CardContent, CardFooter } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
@@ -79,6 +79,8 @@ interface DashboardMetrics {
 }
 
 interface DashboardProps {
+  uploadedAt?: string | null;
+  isSampleData?: boolean;
   data: {
     total_revenue?: number;
     active_customers?: number;
@@ -101,7 +103,14 @@ interface DashboardProps {
   } | null;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
+function freshnessLabel(iso: string): string {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (diff === 0) return 'Uploaded today';
+  if (diff === 1) return 'Last upload: yesterday';
+  return `Last upload: ${diff} days ago`;
+}
+
+export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSampleData }) => {
   const { user } = useAuth();
   const isStarterPlan = user?.plan === 'starter';
   const isMicroPlan = user?.plan === 'micro';
@@ -183,6 +192,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ data }) => {
 
   return (
     <div className="p-6 space-y-6 bg-slate-50 min-h-screen">
+      {/* Freshness / sample data bar */}
+      {isSampleData && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          <Zap className="w-4 h-4 shrink-0 text-amber-500" />
+          <span>
+            <strong>Viewing sample data</strong> — upload your own orders to see real insights.
+          </span>
+        </div>
+      )}
+      {!isSampleData && uploadedAt && (
+        <div className="flex items-center gap-2 text-sm text-slate-400">
+          <Clock className="w-4 h-4" />
+          <span>{freshnessLabel(uploadedAt)}</span>
+        </div>
+      )}
+
       {/* Header Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Card className={!isMetricAvailable(data.total_revenue) ? 'opacity-50' : ''}>

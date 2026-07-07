@@ -44,6 +44,10 @@ from services.analytics import AnalyticsService
 from services.file_processor import file_processor
 from core_config import validate_core_config, CORE_VERSION
 
+# Shared auth and state (imported here so the v2 router can import without circular refs)
+from shared.auth import require_auth as _require_auth_shared
+from shared.state import _user_data as _shared_user_data, _user_sample_mode
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -57,78 +61,13 @@ except Exception as e:
     raise SystemExit("System cannot start - core configuration corrupted")
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
+# require_auth lives in shared/auth.py so the v2 router can import it without
+# creating a circular dependency. This alias preserves backward compatibility
+# with all existing usages in this file.
+require_auth = _require_auth_shared
 
-_JWT_SECRET  = os.environ.get("SUPABASE_JWT_SECRET", "")
-_SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-
-# Cache the JWKS public key so we only fetch it once per server start.
-_jwks_key = None
-
-def _load_jwks_key():
-    """Fetch the ES256/RS256 public key from Supabase's JWKS endpoint."""
-    global _jwks_key
-    if not _SUPABASE_URL:
-        return None
-    url = f"{_SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json"
-    try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            data = json.loads(resp.read())
-        keys = data.get("keys", [])
-        if keys:
-            _jwks_key = jwk.construct(keys[0])
-            logger.info(f"Loaded JWKS public key (alg={keys[0].get('alg')})")
-    except Exception as e:
-        logger.warning(f"Could not load JWKS key: {e}")
-
-
-def require_auth(authorization: str = Header(...)) -> dict:
-    """
-    FastAPI dependency — verifies the Supabase JWT.
-
-    Supabase projects created after ~2024 use ES256 (new JWT Signing Keys).
-    Older projects used HS256 with a legacy secret. We handle both:
-      - Peek at the token header to see which alg is in use
-      - ES256 / RS256 → verify with the JWKS public key
-      - HS256         → verify with SUPABASE_JWT_SECRET
-    If neither is configured, skip auth (safe for local dev only).
-    """
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header.")
-
-    token = authorization[len("Bearer "):].strip()
-
-    try:
-        header = jwt.get_unverified_header(token)
-        alg = header.get("alg", "HS256")
-
-        if alg in ("ES256", "RS256"):
-            if _jwks_key is None:
-                _load_jwks_key()
-            if _jwks_key is None:
-                # JWKS unavailable — skip auth rather than block the user
-                logger.warning("JWKS key unavailable — skipping auth check.")
-                return {}
-            payload = jwt.decode(token, _jwks_key, algorithms=[alg], audience="authenticated")
-        else:
-            # HS256 legacy path
-            if not _JWT_SECRET:
-                logger.warning("SUPABASE_JWT_SECRET not set — skipping auth check.")
-                return {}
-            payload = jwt.decode(token, _JWT_SECRET, algorithms=["HS256"], audience="authenticated")
-
-        return payload
-
-    except JWTError as e:
-        logger.warning(f"JWT validation failed: {type(e).__name__}: {e}")
-        raise HTTPException(
-            status_code=401,
-            detail="Your session has expired. Please log in again.",
-        )
-
-
-# Per-user in-memory data store: maps user_id (Supabase sub) -> uploaded DataFrame.
-# Replaces the single shared file_processor.sales_data which caused cross-user leakage.
-_user_data: Dict[str, Any] = {}
+# Per-user in-memory data store — shared with the v2 router via shared/state.py.
+_user_data = _shared_user_data
 
 
 # ── App ────────────────────────────────────────────────────────────────────────
@@ -157,6 +96,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# v2 upload router (Excel, persistent storage, history, validation, sample data)
+from routes.upload_v2 import router as _upload_v2_router
+app.include_router(_upload_v2_router, prefix="/api/upload/v2")
 
 def standardize_columns(df):
     """Standardize column names for consistent processing."""
@@ -597,13 +540,14 @@ async def delete_account(_user: dict = Depends(require_auth)):
         raise HTTPException(status_code=400, detail="Could not identify user from token.")
 
     service_role_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
-    if not service_role_key or not _SUPABASE_URL:
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    if not service_role_key or not supabase_url:
         raise HTTPException(
             status_code=501,
             detail="Account deletion is not configured on this server. Contact support.",
         )
 
-    url = f"{_SUPABASE_URL.rstrip('/')}/auth/v1/admin/users/{user_id}"
+    url = f"{supabase_url.rstrip('/')}/auth/v1/admin/users/{user_id}"
     req = urllib.request.Request(url, method="DELETE")
     req.add_header("Authorization", f"Bearer {service_role_key}")
     req.add_header("apikey", service_role_key)

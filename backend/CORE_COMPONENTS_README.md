@@ -128,4 +128,39 @@ If you need to modify core components:
 3. Document all changes
 4. Update this README with new test results
 
-**Remember: This system successfully processes real customer data. Stability > Features.** 
+**Remember: This system successfully processes real customer data. Stability > Features.**
+
+---
+
+## 2026-07-07 — Data Upload v2 (protected files NOT modified)
+
+**Review date:** 2026-07-07
+**Branch:** feat/data-upload-v2
+
+The v2 upload feature was built entirely in new files. No protected functions
+in this README were changed:
+
+| Protected function | File | Changed? |
+|---|---|---|
+| `make_json_safe` | `main.py` | No |
+| `safe_divide` | `main.py` | No |
+| `clean_dataframe` | `services/data_cleaner.py` | No |
+| `safe_float`, `safe_int`, timezone handling | `services/analytics.py` | No |
+| `REQUIRED_COLUMNS`, `find_matching_columns` | `utils/validators.py` | No |
+| `CORE_REQUIRED_COLUMNS`, `CORE_DATA_CLEANING_RULES` | `core_config.py` | No |
+
+New files added (not protected):
+- `shared/__init__.py`, `shared/state.py`, `shared/auth.py`
+- `services/supabase_service.py`
+- `routes/upload_v2.py`
+- `sample_data/shopify_sample.csv`
+
+`main.py` was modified only in its non-protected sections: added import aliases
+for the shared modules and mounted the v2 router. The `_SUPABASE_URL` local
+variable in the account-deletion endpoint was cleaned up (was referencing a
+now-moved global; changed to a local `os.environ.get(...)` call).
+
+**Baseline test status:** 48-record baseline was run before v2 work began and
+saved to `baseline-tests/baseline-outputs.json`. Because no protected files were
+touched, the outputs are still valid. Re-run `baseline-tests/run_baseline.py`
+to verify any time.

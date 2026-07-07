@@ -488,3 +488,120 @@ and can read/write anything in the database.
 **Decision — not committed to git:** `backend/.env` is gitignored. The key must
 be set manually in each environment (local and Render). `backend/.env.example`
 documents the variable name and where to find it so it isn't forgotten.
+
+---
+
+## 2026-07-07 — Data upload v2: full rewrite of the upload pipeline
+
+**What:** Complete replacement of the v1 upload flow. No protected files were
+modified. All changes are additive — new files only (new routes module, new shared
+modules, new frontend component) plus wiring into existing entry points.
+
+### Backend changes
+
+**`backend/shared/state.py`** (new)
+Shared in-memory state module: `_user_data` dict and `_user_sample_mode` dict.
+Both main.py and upload_v2.py import from here so they reference the same dict
+instance. Python module-level mutable objects are shared by reference — this is
+intentional and is how per-user data is passed between the v1 analytics endpoints
+(in main.py) and the v2 upload endpoint.
+
+**`backend/shared/auth.py`** (new)
+Extracted `require_auth` FastAPI dependency from main.py into a shared module to
+avoid a circular import (upload_v2.py → main.py → upload_v2.py). Both files now
+import from shared.auth instead. The logic is unchanged — ES256 (JWKS) + HS256
+(legacy) JWT verification returning the payload dict with the user's `sub` claim.
+
+**`backend/services/supabase_service.py`** (new)
+Supabase REST API helpers using urllib (no requests library — not in
+requirements.txt). Handles db_insert, db_upsert, db_select, db_update,
+db_delete, storage_upload, storage_delete, storage_download. Uses
+SUPABASE_SERVICE_ROLE_KEY from the environment — never exposed to the browser.
+Bucket: `strategiq-uploads`. Storage conflict (HTTP 409) retried with PUT.
+
+**`backend/sample_data/shopify_sample.csv`** (new)
+48-record realistic Shopify clothing brand dataset bundled with the app.
+Identical to the baseline test CSV. Used by the "Try with sample data" endpoint.
+
+**`backend/routes/upload_v2.py`** (new)
+Full v2 router mounted at `/api/upload/v2`. Key design decisions:
+- Column mapping confidence: "high" = exact variant match, "medium" = fuzzy ≥0.75,
+  "low" = fuzzy <0.75. Uses difflib.SequenceMatcher.
+- Row validation: BLOCKING_COLS = [order_id, total, order_date] (missing = error),
+  WARN_COLS = [product_name] (missing = warning). Row numbers are 1-based.
+- Encoding cascade: utf-8-sig → utf-8 → latin-1 → cp1252, with the used
+  encoding returned to the frontend so the user can see it.
+- Duplicate detection: order_id collision treated as warning, not error; first
+  occurrence kept.
+- Saved mapping: upserted to user_column_mappings table (one row per user).
+  Returned on analyze-headers so the next upload pre-fills the mapping UI.
+- Upload history: every process call writes a row to upload_history, including
+  the Supabase Storage path for later reload.
+- Sample data: stored in _user_sample_mode[user_id]; clears on DELETE.
+
+**`backend/main.py`** (modified — NON-PROTECTED SECTIONS ONLY)
+Added shared module imports and alias (`_user_data = _shared_user_data`),
+fixed _SUPABASE_URL reference in account-deletion endpoint (now a local var),
+and mounted the v2 router. make_json_safe and safe_divide were NOT touched.
+
+**`supabase/migrations/20260707_upload_v2.sql`** (new)
+Two new tables:
+- `upload_history`: tracks every upload per user (file, size, row count, status,
+  storage path, sample flag). RLS: users read their own rows only.
+- `user_column_mappings`: one row per user storing their confirmed column mapping
+  as JSONB. RLS: users read their own row only.
+Backend writes via service role key (bypasses RLS); no client-side writes.
+
+### Frontend changes
+
+**`src/types/index.ts`** (appended)
+New TypeScript types: ConfidenceLevel, V2AnalyzeHeadersResponse, RowError,
+DuplicateRow, V2ProcessResponse, UploadHistoryEntry, V2HistoryResponse,
+V2SavedMappingResponse, V2SampleStatusResponse, DataUploadV2Props.
+
+**`src/components/upload/DataUploadV2.tsx`** (new)
+Complete 9-step wizard component:
+- upload → sheet-select → mapping → preview → uploading → processing → errors
+  → success → history
+- XHR used for real upload % progress (fetch API does not expose upload.onprogress).
+- Encoding notification shown on the preview screen.
+- Column mapping: confidence badge (Auto-detected / Best guess / Uncertain) per
+  field. Required fields (order_id, order_date, total_price) must be mapped before
+  proceeding. Optional field (line_items) can be skipped.
+- Preview: first 10 rows in a scrollable table. "Looks right — process" or
+  "Fix mapping" buttons.
+- Processing: four stage indicators (Reading → Detecting → Validating → Ready).
+- Errors: row errors and duplicates separated; downloadable CSV error report.
+  Blocking errors prevent "Continue anyway"; warnings allow it.
+- Success: confirmation screen with row count, encoding, timestamp.
+- History: all uploads listed with age (daysAgo), status badge, "Use this" to
+  reload, and delete button.
+- Sample data: "Try with sample data" button on upload screen; persistent amber
+  banner while active; "Remove sample" link.
+
+**`src/App.tsx`** (modified)
+Switched import from DataUpload to DataUploadV2. Added isSampleData and
+uploadedAt state. handleProcessedData now accepts (data, uploadedAt, isSampleData).
+Added handleClearSampleData. Passes all three new props to Dashboard.
+
+**`src/components/dashboard/Dashboard.tsx`** (modified)
+Added uploadedAt and isSampleData props. Shows "Last upload: X days ago"
+freshness indicator at the top when real data is loaded. Shows amber sample data
+banner when isSampleData is true.
+
+### Protected files — not modified
+
+make_json_safe, safe_divide (main.py), clean_dataframe (data_cleaner.py),
+AnalyticsService (analytics.py), and validators.py were all untouched.
+upload_v2.py has its own local `_json_safe()` helper (same logic) rather than
+importing from main.py to avoid the circular import.
+
+The 48-record baseline was run before any v2 code was written and outputs saved
+to baseline-tests/baseline-outputs.json. Because no protected files were changed,
+a re-run is not strictly required, but the baseline directory is committed so it
+can be re-run at any time to confirm the pipeline is unchanged.
+
+**Why:** The v1 upload flow had no progress feedback, no column confidence
+indicators, no preview, no error reporting, no history, no sample data mode, no
+duplicate detection, and no file storage. The v2 rebuild delivers all of these
+while keeping the same v1 analytics backend working unchanged.

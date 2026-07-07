@@ -202,6 +202,88 @@ export interface DataUploadProps {
   onProcessed: (data: ProcessingMetrics) => void;
 }
 
+// ── Upload v2 API types ───────────────────────────────────────────────────────
+
+export type ConfidenceLevel = 'high' | 'medium' | 'low';
+
+export interface V2AnalyzeHeadersResponse {
+  success: boolean;
+  error?: string;
+  all_columns: string[];
+  row_count: number;
+  auto_matched: Record<string, string>;
+  confidence_scores: Record<string, ConfidenceLevel>;
+  fuzzy_suggestions: Record<string, string[]>;
+  missing: string[];
+  needs_mapping: boolean;
+  preview_rows: Record<string, unknown>[];
+  file_type: 'csv' | 'xlsx' | 'xls';
+  sheet_names: string[] | null;
+  encoding_used: string | null;
+  saved_mapping: Record<string, string>;
+  field_labels: Record<string, string>;
+  field_descriptions: Record<string, string>;
+  field_missing_messages: Record<string, string>;
+}
+
+export interface RowError {
+  row: number;
+  field: string;
+  value: string;
+  error: string;
+  severity: 'error' | 'warning';
+}
+
+export interface DuplicateRow {
+  row: number;
+  order_id: string;
+  message: string;
+  severity: 'warning';
+}
+
+export interface V2ProcessResponse {
+  success: boolean;
+  error?: string;
+  upload_id?: string;
+  metrics?: ProcessingMetrics;
+  rows_processed?: number;
+  row_errors?: RowError[];
+  duplicate_rows?: DuplicateRow[];
+  warning_count?: number;
+  encoding_used?: string;
+  uploaded_at?: string;
+  is_sample_data?: boolean;
+}
+
+export interface UploadHistoryEntry {
+  id: string;
+  file_name: string;
+  file_size_bytes: number;
+  row_count: number | null;
+  status: 'processing' | 'complete' | 'failed';
+  is_sample_data: boolean;
+  created_at: string;
+}
+
+export interface V2HistoryResponse {
+  data: UploadHistoryEntry[];
+}
+
+export interface V2SavedMappingResponse {
+  mapping: Record<string, string>;
+}
+
+export interface V2SampleStatusResponse {
+  is_sample_data: boolean;
+  has_data: boolean;
+}
+
+export interface DataUploadV2Props {
+  onProcessed: (data: ProcessingMetrics, uploadedAt: string, isSampleData: boolean) => void;
+  isSampleData: boolean;
+  onClearSampleData: () => void;
+}
+
 export interface AnalyticsProps {
   data: ProcessingMetrics;
 }

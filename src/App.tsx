@@ -11,7 +11,7 @@ import { OnboardingScreen } from './components/onboarding/OnboardingScreen';
 import { ProfilePage } from './components/profile/ProfilePage';
 import { Header } from './components/layout/Header';
 import { Dashboard } from './components/dashboard/Dashboard';
-import { DataUpload } from './components/upload/DataUpload';
+import { DataUploadV2 } from './components/upload/DataUploadV2';
 import { Analytics } from './components/analytics/Analytics';
 import { PremiumFeatures } from './components/analytics/PremiumFeatures';
 
@@ -34,6 +34,8 @@ const PROTECTED: Page[] = ['dashboard', 'upload', 'analytics', 'premium', 'profi
 const AppContent: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>('landing');
   const [dashboardData, setDashboardData] = useState<any>(null);
+  const [uploadedAt, setUploadedAt] = useState<string | null>(null);
+  const [isSampleData, setIsSampleData] = useState(false);
   // Remember where a logged-out user was trying to go, so we can send them there after login
   const [intendedPage, setIntendedPage] = useState<Page | null>(null);
   const { user, unverifiedEmail, authEvent, clearAuthEvent, isLoading } = useAuth();
@@ -80,9 +82,17 @@ const AppContent: React.FC = () => {
 
   const handleNavigate = (page: string) => setCurrentPage(page as Page);
 
-  const handleProcessedData = (data: any) => {
+  const handleProcessedData = (data: any, at: string, sample: boolean) => {
     setDashboardData(data);
+    setUploadedAt(at);
+    setIsSampleData(sample);
     setCurrentPage('dashboard');
+  };
+
+  const handleClearSampleData = () => {
+    setIsSampleData(false);
+    setDashboardData(null);
+    setUploadedAt(null);
   };
 
   // Session restoring
@@ -146,11 +156,15 @@ const AppContent: React.FC = () => {
 
       <main className="container mx-auto px-4 py-6">
         {currentPage === 'upload' && (
-          <DataUpload onProcessed={handleProcessedData} />
+          <DataUploadV2
+            onProcessed={handleProcessedData}
+            isSampleData={isSampleData}
+            onClearSampleData={handleClearSampleData}
+          />
         )}
 
         {currentPage === 'dashboard' && (
-          <Dashboard data={dashboardData} />
+          <Dashboard data={dashboardData} uploadedAt={uploadedAt} isSampleData={isSampleData} />
         )}
 
         {currentPage === 'profile' && (
