@@ -23,8 +23,13 @@ class DataCleaner:
 
     @staticmethod
     def clean_date_column(series: pd.Series) -> pd.Series:
-        """Convert date strings to datetime objects."""
-        return pd.to_datetime(series, errors='coerce')
+        """Convert date strings to datetime objects, auto-detecting DD/MM vs MM/DD format."""
+        parsed_default = pd.to_datetime(series, errors='coerce')
+        parsed_dayfirst = pd.to_datetime(series, errors='coerce', dayfirst=True)
+        # Use whichever parse produces fewer NaTs — handles US, EU/UK, and ISO formats
+        if parsed_dayfirst.isna().sum() < parsed_default.isna().sum():
+            return parsed_dayfirst
+        return parsed_default
 
     def clean_dataframe(self, df: pd.DataFrame, column_mappings: Dict[str, str] = None) -> pd.DataFrame:
         """Clean and standardize a DataFrame with robust null and zero handling."""
@@ -58,11 +63,11 @@ class DataCleaner:
         
         df.columns = final_columns
         
-        # Handle date columns - expanded to handle more date formats
+        # Handle date columns - auto-detect DD/MM vs MM/DD format
         date_columns = ['order_date', 'paid_at', 'fulfilled_at', 'created_at']
         for col in date_columns:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
+                df[col] = DataCleaner.clean_date_column(df[col])
         
         # Convert numeric columns - expanded list with robust null/zero handling
         numeric_columns = ['quantity', 'unit_price', 'total', 'subtotal', 'shipping', 'taxes', 'discount_amount', 'total_spent', 'total_orders']

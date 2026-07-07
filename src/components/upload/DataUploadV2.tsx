@@ -50,7 +50,7 @@ const FIELD_TRANSLATE: Record<string, string> = {
   order_date: 'order_date',
   total_price: 'total',
   line_items: 'product_name',
-  customer_identifier: 'customer_email',
+  customer_identifier: 'customer_id',
 };
 
 const ACCEPTED_EXTENSIONS = '.csv,.xlsx,.xls';

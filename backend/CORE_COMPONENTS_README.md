@@ -167,6 +167,18 @@ to verify any time.
 
 ---
 
+## 2026-07-07 — data_cleaner.py: robust date format detection added
+
+**What changed:** `clean_date_column()` replaced its bare `pd.to_datetime(series, errors='coerce')` call with a two-pass approach: try `dayfirst=False`, try `dayfirst=True`, return whichever produces fewer NaTs. The inline `pd.to_datetime(df[col], errors='coerce')` call inside `clean_dataframe()` now delegates to `DataCleaner.clean_date_column()` instead of duplicating logic.
+
+**Protected functions NOT touched:** null/zero handling, currency cleaning, boolean handling, dedup logic, `core_required` validation — all unchanged.
+
+**Why:** Non-Shopify datasets often use `DD/MM/YYYY` date format (e.g. `15/02/2023`). Without `dayfirst=True`, any date where day > 12 became `NaT`, silently corrupting all date-based analytics. ISO format dates (`YYYY-MM-DD`) are unambiguous and unaffected by this change.
+
+**Testing:** Baseline re-run should show identical results — baseline uses Shopify ISO dates which are unaffected by `dayfirst`. Re-run `baseline-tests/run_baseline.py` to confirm.
+
+---
+
 ## 2026-07-07 — analytics.py: customer_id fallback added (business logic only)
 
 **What changed:** Added `_customer_col()` helper method to `AnalyticsService`.

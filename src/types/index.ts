@@ -197,11 +197,6 @@ export interface ProcessingResponse {
   metrics?: ProcessingMetrics;
 }
 
-// Component Props Types
-export interface DataUploadProps {
-  onProcessed: (data: ProcessingMetrics) => void;
-}
-
 // ── Upload v2 API types ───────────────────────────────────────────────────────
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low';

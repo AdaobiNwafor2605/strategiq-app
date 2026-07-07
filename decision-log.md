@@ -632,3 +632,22 @@ modules, new frontend component) plus wiring into existing entry points.
 indicators, no preview, no error reporting, no history, no sample data mode, no
 duplicate detection, and no file storage. The v2 rebuild delivers all of these
 while keeping the same v1 analytics backend working unchanged.
+
+---
+
+## 2026-07-07 — Fix: non-email customer IDs dropped all rows; DD/MM dates silently wrong
+
+**Root cause 1 — all rows dropped:** `FIELD_TRANSLATE` in `upload_v2.py` mapped `customer_identifier` → `customer_email`. So when a dataset had a `customer_id` column (numeric IDs like `10000055`), the pipeline renamed it to `customer_email`. The data cleaner then applied its `@` filter: `df = df[df['customer_email'].str.contains('@', na=False)]` — removing every row since no numeric ID contains `@`. Result: empty DataFrame → "No valid data after cleaning" error.
+
+**Root cause 2 — silent date corruption:** `pd.to_datetime()` was called without `dayfirst=True`. Dates in `DD/MM/YYYY` format (common in European/non-Shopify datasets, e.g. `15/02/2023`) were either silently converted to wrong values (day ≤ 12 treated as month) or became `NaT` (day > 12 can't be a valid month). All date-based analytics (trends, churn, segments) would be wrong.
+
+**Fixes:**
+
+**`backend/routes/upload_v2.py`** (non-protected)
+Changed `FIELD_TRANSLATE["customer_identifier"]` from `"customer_email"` to `"customer_id"`. The CSV column now keeps its identity as `customer_id` through the pipeline. `_customer_col()` in analytics.py already handles both `customer_email` and `customer_id`.
+
+**`backend/services/data_cleaner.py`** (protected — modified with care)
+Replaced the bare `pd.to_datetime(series, errors='coerce')` in `clean_date_column()` with a format-detection approach: tries both `dayfirst=False` and `dayfirst=True`, returns whichever yields fewer `NaT` values. This correctly handles US (`MM/DD`), EU/UK (`DD/MM`), and ISO (`YYYY-MM-DD`) date formats without guessing. The inline call in `clean_dataframe()` now calls `DataCleaner.clean_date_column()` instead of duplicating the logic. No null/zero handling, currency cleaning, or other protected logic was touched.
+
+**`src/components/upload/DataUploadV2.tsx`** (non-protected)
+Updated frontend `FIELD_TRANSLATE` constant to match: `customer_identifier: 'customer_id'`.

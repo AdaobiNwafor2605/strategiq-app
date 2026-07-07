@@ -86,7 +86,9 @@ FIELD_MISSING_MESSAGES = {
 FIELD_TRANSLATE = {
     "total_price": "total",
     "line_items": "product_name",
-    "customer_identifier": "customer_email",  # analytics.py uses customer_email as the identifier col
+    # Keep as customer_id so data_cleaner's email-only @ filter doesn't drop all rows.
+    # analytics.py._customer_col() finds whichever of customer_email / customer_id is present.
+    "customer_identifier": "customer_id",
 }
 
 # ── JSON safety (local copy to avoid circular import from main.py) ─────────────
