@@ -1,12 +1,45 @@
 import React, { useState } from 'react';
-import { User, Mail, Lock, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
+import { User, Mail, Lock, Trash2, AlertCircle, CheckCircle, Phone, Check } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card, CardContent } from '../ui/Card';
 import { PasswordInput } from '../ui/PasswordInput';
 import { useAuth } from '../../contexts/AuthContext';
 
+const COUNTRIES = [
+  'United Kingdom', 'United States', 'Canada', 'Australia', 'Germany',
+  'France', 'Netherlands', 'Spain', 'Italy', 'Sweden', 'Denmark', 'Other',
+];
+
+const BRAND_SIZES = [
+  { value: 'solo', label: 'Solo (just me)' },
+  { value: 'small', label: 'Small (1–5 people)' },
+  { value: 'medium', label: 'Medium (6–20 people)' },
+  { value: 'large', label: 'Large (20+ people)' },
+];
+
+const INDUSTRY_SEGMENTS = [
+  { value: 'womenswear', label: 'Womenswear' },
+  { value: 'menswear', label: 'Menswear' },
+  { value: 'accessories', label: 'Accessories' },
+  { value: 'multi-category', label: 'Multi-category' },
+];
+
 export const ProfilePage: React.FC = () => {
-  const { user, updateEmail, resetPassword, deleteAccount } = useAuth();
+  const { user, updateEmail, updateProfile, resetPassword, deleteAccount } = useAuth();
+
+  // Profile edit
+  const [showProfileForm, setShowProfileForm] = useState(false);
+  const [profileFirstName, setProfileFirstName] = useState(user?.firstName ?? '');
+  const [profileLastName, setProfileLastName] = useState(user?.lastName ?? '');
+  const [profileBrandName, setProfileBrandName] = useState(user?.brandName ?? '');
+  const [profileBrandSize, setProfileBrandSize] = useState(user?.brandSize ?? '');
+  const [profileIndustrySegment, setProfileIndustrySegment] = useState(user?.industrySegment ?? '');
+  const [profileCountry, setProfileCountry] = useState(user?.country ?? 'United Kingdom');
+  const [profileCurrency, setProfileCurrency] = useState<'GBP' | 'USD' | 'EUR'>(user?.currency ?? 'GBP');
+  const [profilePhone, setProfilePhone] = useState(user?.phone ?? '');
+  const [profileError, setProfileError] = useState('');
+  const [profileSuccess, setProfileSuccess] = useState('');
+  const [profileLoading, setProfileLoading] = useState(false);
 
   // Email change
   const [showEmailForm, setShowEmailForm] = useState(false);
@@ -28,6 +61,32 @@ export const ProfilePage: React.FC = () => {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+
+  const handleProfileUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileError('');
+    setProfileSuccess('');
+    if (!profileFirstName.trim()) { setProfileError('First name is required.'); return; }
+    setProfileLoading(true);
+    try {
+      await updateProfile({
+        firstName: profileFirstName.trim(),
+        lastName: profileLastName.trim(),
+        brandName: profileBrandName.trim() || undefined,
+        brandSize: profileBrandSize || undefined,
+        industrySegment: profileIndustrySegment || undefined,
+        country: profileCountry,
+        currency: profileCurrency,
+        phone: profilePhone.trim() || undefined,
+      });
+      setProfileSuccess('Profile updated.');
+      setShowProfileForm(false);
+    } catch (err: any) {
+      setProfileError(err?.message ?? 'Failed to update profile. Please try again.');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
 
   const handleEmailChange = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,7 +131,6 @@ export const ProfilePage: React.FC = () => {
     setDeleteError('');
     try {
       await deleteAccount();
-      // User will be signed out and redirected by AuthContext
     } catch (err: any) {
       setDeleteError(err?.message ?? 'Failed to delete account. Please try again.');
       setDeleteLoading(false);
@@ -88,40 +146,214 @@ export const ProfilePage: React.FC = () => {
         <p className="text-slate-600 mt-1 text-sm">Manage your StrategIQ account</p>
       </div>
 
-      {/* Account info */}
+      {/* Account info + edit */}
       <Card>
         <CardContent className="p-6">
-          <h2 className="text-base font-semibold text-slate-900 mb-4 flex items-center gap-2">
-            <User className="w-4 h-4" />
-            Account Details
-          </h2>
-          <dl className="space-y-0 divide-y divide-slate-100">
-            {[
-              { label: 'Name', value: user.name },
-              {
-                label: 'Plan',
-                value: (
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 capitalize">
-                    {user.plan}
-                  </span>
-                ),
-              },
-              {
-                label: 'Member since',
-                value: new Date(user.createdAt).toLocaleDateString('en-GB', {
-                  month: 'long',
-                  year: 'numeric',
-                }),
-              },
-              ...(user.brandName ? [{ label: 'Brand', value: user.brandName }] : []),
-              ...(user.country ? [{ label: 'Country', value: user.country }] : []),
-            ].map(({ label, value }) => (
-              <div key={label} className="flex justify-between items-center py-3">
-                <dt className="text-sm text-slate-500">{label}</dt>
-                <dd className="text-sm font-medium text-slate-900">{value}</dd>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+              <User className="w-4 h-4" />
+              Account Details
+            </h2>
+            {!showProfileForm && (
+              <button
+                onClick={() => {
+                  setProfileFirstName(user.firstName ?? '');
+                  setProfileLastName(user.lastName ?? '');
+                  setProfileBrandName(user.brandName ?? '');
+                  setProfileBrandSize(user.brandSize ?? '');
+                  setProfileIndustrySegment(user.industrySegment ?? '');
+                  setProfileCountry(user.country ?? 'United Kingdom');
+                  setProfileCurrency(user.currency ?? 'GBP');
+                  setProfilePhone(user.phone ?? '');
+                  setProfileError('');
+                  setProfileSuccess('');
+                  setShowProfileForm(true);
+                }}
+                className="text-sm text-purple-600 hover:text-purple-700 font-medium"
+              >
+                Edit
+              </button>
+            )}
+          </div>
+
+          {/* Read-only display */}
+          {!showProfileForm && (
+            <dl className="space-y-0 divide-y divide-slate-100">
+              {[
+                { label: 'Name', value: user.name },
+                {
+                  label: 'Plan',
+                  value: (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 capitalize">
+                      {user.plan}
+                    </span>
+                  ),
+                },
+                {
+                  label: 'Member since',
+                  value: new Date(user.createdAt).toLocaleDateString('en-GB', {
+                    month: 'long',
+                    year: 'numeric',
+                  }),
+                },
+                ...(user.brandName ? [{ label: 'Brand', value: user.brandName }] : []),
+                ...(user.brandSize ? [{ label: 'Team size', value: BRAND_SIZES.find(b => b.value === user.brandSize)?.label ?? user.brandSize }] : []),
+                ...(user.industrySegment ? [{ label: 'Segment', value: INDUSTRY_SEGMENTS.find(s => s.value === user.industrySegment)?.label ?? user.industrySegment }] : []),
+                ...(user.country ? [{ label: 'Country', value: user.country }] : []),
+                ...(user.currency ? [{ label: 'Currency', value: user.currency }] : []),
+                ...(user.phone ? [{ label: 'Phone', value: user.phone }] : []),
+              ].map(({ label, value }) => (
+                <div key={label} className="flex justify-between items-center py-3">
+                  <dt className="text-sm text-slate-500">{label}</dt>
+                  <dd className="text-sm font-medium text-slate-900">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+
+          {profileSuccess && !showProfileForm && (
+            <div className="flex items-start gap-2 mt-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+              <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{profileSuccess}</span>
+            </div>
+          )}
+
+          {/* Edit form */}
+          {showProfileForm && (
+            <form onSubmit={handleProfileUpdate} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">First Name</label>
+                  <input
+                    type="text"
+                    value={profileFirstName}
+                    onChange={(e) => setProfileFirstName(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors text-sm"
+                    placeholder="First"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Last Name</label>
+                  <input
+                    type="text"
+                    value={profileLastName}
+                    onChange={(e) => setProfileLastName(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors text-sm"
+                    placeholder="Last"
+                  />
+                </div>
               </div>
-            ))}
-          </dl>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Brand Name</label>
+                <input
+                  type="text"
+                  value={profileBrandName}
+                  onChange={(e) => setProfileBrandName(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors text-sm"
+                  placeholder="Your Shopify store name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Industry Segment</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {INDUSTRY_SEGMENTS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setProfileIndustrySegment(value)}
+                      className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors text-left flex items-center gap-2 ${
+                        profileIndustrySegment === value
+                          ? 'border-purple-500 bg-purple-50 text-purple-700'
+                          : 'border-slate-300 text-slate-600 hover:border-slate-400'
+                      }`}
+                    >
+                      {profileIndustrySegment === value && <Check className="w-3.5 h-3.5 shrink-0" />}
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Team Size</label>
+                <select
+                  value={profileBrandSize}
+                  onChange={(e) => setProfileBrandSize(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors text-sm"
+                >
+                  <option value="">Select team size</option>
+                  {BRAND_SIZES.map(({ value, label }) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Country</label>
+                  <select
+                    value={profileCountry}
+                    onChange={(e) => setProfileCountry(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors text-sm"
+                  >
+                    {COUNTRIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Currency</label>
+                  <select
+                    value={profileCurrency}
+                    onChange={(e) => setProfileCurrency(e.target.value as 'GBP' | 'USD' | 'EUR')}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors text-sm"
+                  >
+                    <option value="GBP">GBP (£)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Phone <span className="text-slate-400 font-normal">(optional)</span>
+                </label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  <input
+                    type="tel"
+                    value={profilePhone}
+                    onChange={(e) => setProfilePhone(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors text-sm"
+                    placeholder="+44 7700 000000"
+                  />
+                </div>
+              </div>
+
+              {profileError && (
+                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{profileError}</span>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <Button type="submit" size="sm" loading={profileLoading}>Save Changes</Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => { setShowProfileForm(false); setProfileError(''); }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          )}
         </CardContent>
       </Card>
 

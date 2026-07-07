@@ -13,7 +13,7 @@ import urllib.request
 from fastapi import FastAPI, UploadFile, File, Form, Depends, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 from jose import jwt, jwk, JWTError
 import pandas as pd
 import numpy as np
@@ -124,6 +124,11 @@ def require_auth(authorization: str = Header(...)) -> dict:
             status_code=401,
             detail="Your session has expired. Please log in again.",
         )
+
+
+# Per-user in-memory data store: maps user_id (Supabase sub) -> uploaded DataFrame.
+# Replaces the single shared file_processor.sales_data which caused cross-user leakage.
+_user_data: Dict[str, Any] = {}
 
 
 # ── App ────────────────────────────────────────────────────────────────────────
@@ -524,9 +529,10 @@ async def process_files(
                 content={"success": False, "error": {"message": "No valid data found after cleaning and combining files"}}
             )
         
-        # Store the combined data in file_processor for analytics endpoints
-        file_processor.sales_data = combined
-        logger.info(f"Stored combined data in file_processor.sales_data with shape: {combined.shape}")
+        # Store the combined data keyed by user_id so analytics are isolated per account.
+        user_id = _user.get('sub', 'anonymous')
+        _user_data[user_id] = combined
+        logger.info(f"Stored combined data for user {user_id} with shape: {combined.shape}")
         
         # Generate analytics using the analytics service
         analytics = AnalyticsService(combined)
@@ -581,13 +587,17 @@ async def root():
 # ============ ANALYTICS ENDPOINTS (Inline to avoid import overhead) ============
 
 @app.get("/api/analytics/top-products")
-async def get_top_products(limit: int = 10, sort_by: str = "revenue"):
+async def get_top_products(
+    limit: int = 10,
+    sort_by: str = "revenue",
+    _user: dict = Depends(require_auth),
+):
     """Get top products by revenue or volume"""
     try:
-        if file_processor.sales_data is None:
+        user_id = _user.get('sub', '')
+        df = _user_data.get(user_id)
+        if df is None:
             return {"error": "No sales data available", "data": []}
-        
-        df = file_processor.sales_data
         required_cols = ['product_name', 'total', 'quantity']
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
@@ -626,13 +636,16 @@ async def get_top_products(limit: int = 10, sort_by: str = "revenue"):
 
 
 @app.get("/api/analytics/revenue-trends")
-async def get_revenue_trends(period: str = "monthly"):
+async def get_revenue_trends(
+    period: str = "monthly",
+    _user: dict = Depends(require_auth),
+):
     """Get revenue trends over time"""
     try:
-        if file_processor.sales_data is None:
+        user_id = _user.get('sub', '')
+        df = _user_data.get(user_id)
+        if df is None:
             return {"error": "No sales data available", "data": []}
-        
-        df = file_processor.sales_data
         if 'order_date' not in df.columns or 'total' not in df.columns:
             return {"error": "Required columns missing", "data": []}
         
@@ -677,13 +690,16 @@ async def get_revenue_trends(period: str = "monthly"):
 
 
 @app.get("/api/analytics/aov-trends")
-async def get_aov_trends(period: str = "monthly"):
+async def get_aov_trends(
+    period: str = "monthly",
+    _user: dict = Depends(require_auth),
+):
     """Get Average Order Value trends"""
     try:
-        if file_processor.sales_data is None:
+        user_id = _user.get('sub', '')
+        df = _user_data.get(user_id)
+        if df is None:
             return {"error": "No sales data available", "data": []}
-        
-        df = file_processor.sales_data
         if 'order_date' not in df.columns or 'total' not in df.columns or 'order_id' not in df.columns:
             return {"error": "Required columns missing", "data": []}
         
@@ -728,13 +744,15 @@ async def get_aov_trends(period: str = "monthly"):
 
 
 @app.get("/api/analytics/customer-analysis")
-async def get_customer_analysis():
+async def get_customer_analysis(
+    _user: dict = Depends(require_auth),
+):
     """Analyze returning vs new customers"""
     try:
-        if file_processor.sales_data is None:
+        user_id = _user.get('sub', '')
+        df = _user_data.get(user_id)
+        if df is None:
             return {"error": "No sales data available", "data": []}
-        
-        df = file_processor.sales_data
         if 'customer_email' not in df.columns or 'order_date' not in df.columns:
             return {"error": "Required columns missing", "data": []}
         
@@ -794,13 +812,15 @@ async def get_customer_analysis():
 
 
 @app.get("/api/analytics/geographic-analysis")
-async def get_geographic_analysis():
+async def get_geographic_analysis(
+    _user: dict = Depends(require_auth),
+):
     """Get geographic distribution of customers (if location data is available)"""
     try:
-        if file_processor.sales_data is None:
+        user_id = _user.get('sub', '')
+        df = _user_data.get(user_id)
+        if df is None:
             return {"error": "No sales data available", "data": []}
-        
-        df = file_processor.sales_data
         
         # Check if location column exists
         location_col = None
@@ -849,13 +869,16 @@ async def get_geographic_analysis():
 
 
 @app.get("/api/analytics/order-volume-trends")
-async def get_order_volume_trends(period: str = "monthly"):
+async def get_order_volume_trends(
+    period: str = "monthly",
+    _user: dict = Depends(require_auth),
+):
     """Get order volume trends (number of items per order over time)"""
     try:
-        if file_processor.sales_data is None:
+        user_id = _user.get('sub', '')
+        df = _user_data.get(user_id)
+        if df is None:
             return {"error": "No sales data available", "data": []}
-        
-        df = file_processor.sales_data
         
         # Check required columns
         if 'order_date' not in df.columns:
@@ -919,13 +942,15 @@ async def get_order_volume_trends(period: str = "monthly"):
 
 
 @app.get("/api/analytics/revenue-per-customer")
-async def get_revenue_per_customer():
+async def get_revenue_per_customer(
+    _user: dict = Depends(require_auth),
+):
     """Get detailed revenue per customer analysis with segmentation"""
     try:
-        if file_processor.sales_data is None:
+        user_id = _user.get('sub', '')
+        df = _user_data.get(user_id)
+        if df is None:
             return {"error": "No sales data available", "data": []}
-        
-        df = file_processor.sales_data
         
         # Check required columns
         required_cols = ['customer_email', 'total']
@@ -1026,10 +1051,13 @@ async def get_revenue_per_customer():
 
 
 @app.get("/api/analytics/data-insights-check")
-async def check_data_insights_availability():
+async def check_data_insights_availability(
+    _user: dict = Depends(require_auth),
+):
     """Check if your data supports repeat purchase behavior and basket trends analysis"""
     try:
-        if file_processor.sales_data is None:
+        user_id = _user.get('sub', '')
+        if _user_data.get(user_id) is None:
             return {
                 "error": "No sales data available",
                 "message": "Please upload your data files first to see what advanced features are available.",
@@ -1054,9 +1082,9 @@ async def check_data_insights_availability():
                 }
             }
         
-        df = file_processor.sales_data
+        df = _user_data[user_id]
         columns = list(df.columns)
-        
+
         analysis_results = {
             "data_overview": {
                 "total_rows": len(df),

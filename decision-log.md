@@ -322,3 +322,74 @@ rule to test UI changes in a browser before calling them done.
 **Note:** This created two test accounts in the real (dev) Supabase
 project — `claude-route-test-*@example.com` — since there's no separate
 test database configured. Left in place pending a decision on cleanup.
+
+---
+
+## 2026-07-07 — Auth system audit: profile edit and backend data isolation fixed
+
+Ran a full read-the-code audit of the auth system against a 7-item checklist.
+Five items passed cleanly. Two were partially done and fixed in this session.
+
+---
+
+### Fix 1 — Profile page: edit form added (`ProfilePage.tsx`)
+
+**What:** The Account Details card in `ProfilePage.tsx` previously only
+displayed the user's data (name, plan, brand, country etc.) with no way to
+change it after sign-up. Added an "Edit" button that reveals an inline form
+covering: first name, last name, brand name, industry segment (pill buttons),
+team size, country, currency, and phone. On submit it calls `updateProfile()`
+from `AuthContext` which was already fully implemented and just waiting to be
+wired up. On success the form closes and a confirmation banner appears.
+
+**Why:** `updateProfile()` was built in May as part of the auth system but
+never connected to the UI — the ProfilePage only had email/password/delete
+actions. This meant users who mistyped their brand name or changed their team
+size after sign-up had no way to fix it. The fix is entirely in the UI layer;
+no AuthContext or Supabase changes were needed.
+
+**Decision — kept the same toggle pattern:** The edit form uses the same
+show/hide expand pattern as the existing email and password change sections,
+rather than a separate settings page or modal. This keeps the page consistent
+and avoids introducing navigation complexity.
+
+---
+
+### Fix 2 — Backend: analytics endpoints unprotected + shared data store (`main.py`)
+
+**What:** Two related data-isolation bugs fixed in the FastAPI backend:
+
+1. **All 8 analytics GET endpoints had no auth check.** `/api/analytics/top-products`,
+   `revenue-trends`, `aov-trends`, `customer-analysis`, `geographic-analysis`,
+   `order-volume-trends`, `revenue-per-customer`, and `data-insights-check` were
+   openly accessible to anyone — authenticated or not — without a JWT.
+   Added `_user: dict = Depends(require_auth)` to all eight.
+
+2. **`file_processor.sales_data` was a single shared module-level attribute.**
+   Every upload overwrote the same variable. If two users uploaded data, the
+   second user's upload replaced the first's, and the first user's analytics
+   silently showed the second user's data. Replaced with a per-user dictionary
+   `_user_data: Dict[str, Any] = {}` keyed by the JWT's `sub` claim (the
+   user's Supabase user ID). Upload now stores `_user_data[user_id] = combined`
+   and every analytics endpoint reads `_user_data.get(user_id)` — users only
+   ever see their own data.
+
+**Why:** The upload endpoints already required a valid JWT (this was built
+correctly in May) but the analytics read endpoints were missed — a classic
+"write is protected, read is not" oversight. The shared data store was a
+structural problem: the `FileProcessor` class was designed as a singleton for
+single-user local dev, which breaks as soon as more than one user is active.
+The in-memory per-user dict is the simplest correct fix for the current scale;
+a persistent store (e.g. Supabase Storage or a DB-backed cache) would be
+needed if the server restarts between a user uploading and viewing analytics.
+
+**Decision — in-memory store kept for now:** Data is stored in `_user_data`
+in the server process's memory rather than persisted. This means a server
+restart clears all uploaded data and users have to re-upload. Acceptable for
+the current early-stage product where Render spins the server up on demand
+anyway. If this becomes a problem (users losing data), migrate to Supabase
+Storage or a Redis cache — but that's a separate decision.
+
+**Supabase RLS:** The `profiles` table already had correct RLS policies from
+the May migration (`001_extend_profiles.sql`): SELECT, INSERT, UPDATE, and
+DELETE all scoped to `auth.uid() = id`. No changes needed there.
