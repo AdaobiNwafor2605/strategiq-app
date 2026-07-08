@@ -28,6 +28,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from services.supabase_service import db_select, db_upsert
 from services.recommendation_serializer import growth_plan_json_to_action_groups
 from shared.auth import require_auth
+from shared.state import _user_active_upload_id, _user_session_insights
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -88,10 +89,57 @@ def _filter_customers_by_action(
 
 
 def _fetch_customers(user_id: str) -> List[Dict]:
+    session = _user_session_insights.get(user_id)
+    if session and session.get("customers"):
+        return session["customers"]
+
+    active_upload = _user_active_upload_id.get(user_id)
     rows = db_select("customer_insights_cache", {"user_id": user_id}, order_by="generated_at.desc")
+    if active_upload:
+        for row in rows:
+            if row.get("upload_id") == active_upload:
+                return row.get("data_json") or []
     if not rows:
         return []
     return rows[0].get("data_json") or []
+
+
+def _fetch_action_summary_row(user_id: str) -> Optional[Dict]:
+    session = _user_session_insights.get(user_id)
+    if session and session.get("action_summary"):
+        return {
+            "upload_id": _user_active_upload_id.get(user_id),
+            "generated_at": session["action_summary"].get("generated_at"),
+            "summary_json": session["action_summary"],
+        }
+
+    active_upload = _user_active_upload_id.get(user_id)
+    rows = db_select("action_summary_cache", {"user_id": user_id}, order_by="generated_at.desc")
+    if active_upload:
+        for row in rows:
+            if row.get("upload_id") == active_upload:
+                return row
+    return rows[0] if rows else None
+
+
+def _fetch_insights_row(user_id: str) -> Optional[Dict]:
+    session = _user_session_insights.get(user_id)
+    if session and session.get("insights") is not None:
+        return {
+            "upload_id": _user_active_upload_id.get(user_id),
+            "generated_at": session["action_summary"].get("generated_at")
+            if session.get("action_summary")
+            else None,
+            "insights_json": session["insights"],
+        }
+
+    active_upload = _user_active_upload_id.get(user_id)
+    rows = db_select("insights_cache", {"user_id": user_id}, order_by="generated_at.desc")
+    if active_upload:
+        for row in rows:
+            if row.get("upload_id") == active_upload:
+                return row
+    return rows[0] if rows else None
 
 
 def _infer_segment(c: Dict) -> str:
@@ -191,11 +239,23 @@ async def get_segments(_user: dict = Depends(require_auth)):
     if not user_id:
         return JSONResponse(status_code=401, content={"error": "Unauthorised"})
 
-    summary_rows = db_select("action_summary_cache", {"user_id": user_id}, order_by="generated_at.desc")
-    if summary_rows:
-        cached_segments = summary_rows[0].get("summary_json", {}).get("segments", [])
+    session = _user_session_insights.get(user_id)
+    if session and session.get("segments"):
+        return {
+            "success": True,
+            "segments": session["segments"],
+            "upload_id": _user_active_upload_id.get(user_id),
+        }
+
+    summary_row = _fetch_action_summary_row(user_id)
+    if summary_row:
+        cached_segments = summary_row.get("summary_json", {}).get("segments", [])
         if cached_segments:
-            return {"success": True, "segments": cached_segments}
+            return {
+                "success": True,
+                "segments": cached_segments,
+                "upload_id": summary_row.get("upload_id"),
+            }
 
     customers = _fetch_customers(user_id)
     if not customers:
@@ -236,11 +296,11 @@ async def get_action_summary(_user: dict = Depends(require_auth)):
     if not user_id:
         return JSONResponse(status_code=401, content={"error": "Unauthorised"})
 
-    rows = db_select("action_summary_cache", {"user_id": user_id}, order_by="generated_at.desc")
+    rows = _fetch_action_summary_row(user_id)
     if not rows:
         return JSONResponse(status_code=404, content={"error": "No action summary found. Upload data first."})
 
-    record = rows[0]
+    record = rows
     summary = record.get("summary_json", {})
     if not summary.get("groups") and summary.get("weekly_growth_plan"):
         summary = {
@@ -262,11 +322,9 @@ async def get_insight_bank(_user: dict = Depends(require_auth)):
     if not user_id:
         return JSONResponse(status_code=401, content={"error": "Unauthorised"})
 
-    rows = db_select("insights_cache", {"user_id": user_id}, order_by="generated_at.desc")
-    if not rows:
+    record = _fetch_insights_row(user_id)
+    if not record:
         return JSONResponse(status_code=404, content={"error": "No insights found. Upload data first."})
-
-    record = rows[0]
     return {
         "success": True,
         "upload_id": record.get("upload_id"),

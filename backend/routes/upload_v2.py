@@ -43,7 +43,12 @@ from services.supabase_service import (
     storage_upload, storage_delete, storage_download,
 )
 from shared.auth import require_auth
-from shared.state import _user_data, _user_sample_mode
+from shared.state import (
+    _user_data,
+    _user_sample_mode,
+    _user_active_upload_id,
+    _user_session_insights,
+)
 from utils.validators import COLUMN_MAPPINGS, find_matching_column
 
 logger = logging.getLogger(__name__)
@@ -603,13 +608,16 @@ def _run_insights_pipeline(df_clean: pd.DataFrame, user_id: str, upload_id: str)
         "insights: stored %d customer rows (%d skipped), %d insights, %d segments, for user %s",
         total_customers, skipped, len(insights), len(segments_with_trends), user_id,
     )
-    return {
+    pipeline_result = {
         "skipped": skipped,
         "segments": segments_with_trends,
         "action_summary": summary_json,
         "insights": _json_safe(insights),
         "customers": records,
     }
+    _user_active_upload_id[user_id] = upload_id
+    _user_session_insights[user_id] = pipeline_result
+    return pipeline_result
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -886,6 +894,8 @@ async def v2_clear_sample(_user: dict = Depends(require_auth)):
     user_id = _user.get("sub", "anonymous")
     _user_data.pop(user_id, None)
     _user_sample_mode.pop(user_id, None)
+    _user_active_upload_id.pop(user_id, None)
+    _user_session_insights.pop(user_id, None)
     return {"success": True}
 
 

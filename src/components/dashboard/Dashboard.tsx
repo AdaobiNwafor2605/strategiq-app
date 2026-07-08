@@ -94,6 +94,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
   useEffect(() => {
     let cancelled = false;
     async function fetchData() {
+      const preferSession = isSampleData || Boolean(sessionInsights?.uploadId);
+
+      const applySessionData = () => {
+        const fromMetrics = segmentsFromProps(data?.customer_segments);
+        const fromSummary = sessionInsights?.actionSummary?.segments ?? [];
+        const nextSegments = fromMetrics.length > 0 ? fromMetrics : fromSummary;
+        setSegments(nextSegments);
+        setActionSummary(sessionInsights?.actionSummary ?? null);
+        setBankInsights(sessionInsights?.insights ?? []);
+        setSessionCustomers(sessionInsights?.customers ?? []);
+        setUploadId(sessionInsights?.uploadId ?? null);
+      };
+
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         if (!cancelled) {
@@ -103,6 +116,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
           setSessionCustomers(sessionInsights?.customers ?? []);
           setUploadId(sessionInsights?.uploadId ?? null);
         }
+        return;
+      }
+
+      if (preferSession) {
+        if (!cancelled) applySessionData();
         return;
       }
 
@@ -180,7 +198,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
     fetchData();
     return () => { cancelled = true; };
-  }, [data, sessionInsights]);
+  }, [data, sessionInsights, isSampleData]);
 
   async function handleDownloadAll() {
     setDownloading(true);

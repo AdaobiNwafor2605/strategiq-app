@@ -884,3 +884,133 @@ The current pipeline is structured around typed recommendation objects, trigger 
 **How this supports additional industries later:**
 
 Industry specifics are isolated in recommendation/insight catalogues and trigger semantics, while orchestration remains generic. To support another vertical, we can add a new catalogue and profile-mapping rules without replacing the core decision, scoring, explanation, opportunity, or weekly-plan engines.
+
+---
+
+## 2026-07-08 — Recommendation Engine v1 integrated into upload pipeline and dashboard
+
+**What changed:**
+
+Wired the new recommendation system end-to-end so uploads produce lifecycle segments, weekly actions, and scored insights — not just top-line metrics.
+
+**Backend:**
+
+- **`backend/routes/upload_v2.py`**
+  - Added `_apply_recommendation_engine()` — runs `create_recommendation_engine()` on the customer DataFrame; falls back to `build_weekly_summary()` if the engine fails.
+  - Extended `_run_insights_pipeline()` to call the recommendation engine, stamp `_segment` per customer, enrich segments with benchmarks/trends, compute revenue at risk/opportunity, generate the insight bank, and return `segments`, `action_summary`, `insights`, and `customers` in the upload response.
+  - `_build_metrics()` now passes lifecycle segments from the pipeline into `customer_segments` — legacy RFM segments from `AnalyticsService` are no longer used for the dashboard segment grid.
+  - Sample data, real upload, and `POST /history/{id}/set-active` all run the full pipeline.
+
+- **`backend/services/recommendation_serializer.py`** (new) — converts `WeeklyGrowthPlan` JSON into dashboard `ActionGroup` lists (`growth_plan_json_to_action_groups`, `growth_plan_to_action_groups`, `serialize_weekly_growth_plan`).
+
+- **`backend/routes/insights.py`**
+  - Added `GET /segments` — returns enriched lifecycle segments from `action_summary_cache`, with fallback to computing from `customer_insights_cache`.
+  - Action customer matching prefers Weekly Growth Plan `customer_ids` when available (`_filter_customers_by_action`, `_action_customer_ids`).
+
+**Frontend:**
+
+- **`src/App.tsx`** — tracks `DashboardInsightsPayload` (uploadId, actionSummary, insights, customers) and passes it to the dashboard after upload/sample/history set-active.
+
+- **`src/components/upload/DataUploadV2.tsx`** — `insightsPayloadFromResponse()` forwards pipeline output from upload responses to the dashboard.
+
+- **`src/components/dashboard/Dashboard.tsx`** — fetches `/api/insights/segments`, `/action-summary`, and `/bank`; falls back to upload session data when API cache is empty.
+
+- **`src/types/index.ts`** — extended upload/insights types for the full pipeline response.
+
+**Branch / deploy:** `feat/recommendation-engine-v1` fast-forward merged into `main` (commit `280a707`). Production backend lives on Render as `strategiq-api`; frontend on Vercel.
+
+**Why:** The recommendation engine architecture was documented but not yet the live path users saw. This integration makes StrategIQ's primary output — segmented customers, weekly actions, and scored insights — appear immediately after every upload.
+
+---
+
+## 2026-07-08 — Lifecycle segment rules documented and date-anchoring fix (Lapsed false positives)
+
+**What changed:**
+
+- **`segment-rules.md`** (new) — documents behavioural flags, segment priority order (first match wins), and how to tune thresholds in `customer_insights.py`.
+
+- **`backend/services/customer_insights.py`**
+  - Added `_analysis_reference_date()` — anchors `days_since_last_order` to the latest order date in the uploaded file (capped at today), not wall-clock today.
+  - Fixes historical CSV exports where every customer appeared in **Lapsed** because real-world time had moved 180+ days past old order dates.
+
+- **`backend/routes/upload_v2.py`** — stores `analysis_reference_date` in the action summary JSON for traceability.
+
+**Why:** Segment assignment is rule-based and sensitive to recency. Using "today" on historical exports made the product look broken (100% Lapsed). Anchoring to the dataset's end date segments customers as-of when the data was captured — the correct mental model for uploaded snapshots.
+
+**Decision — first-match segment priority:** `Lapsed` is checked before `VIPs`, `Going Quiet`, etc. A lapsed high-value customer lands in Lapsed, not VIPs. Documented in `segment-rules.md` so future threshold changes are intentional.
+
+---
+
+## 2026-07-08 — Dashboard drill-down fixes: segment modal, action customers, and session filtering
+
+**What changed:**
+
+- **`src/utils/customerFilters.ts`** (new) — client-side filtering of customer records by segment name or action key; used when session customer data is available from the upload response.
+
+- **`src/components/dashboard/SegmentModal.tsx`** — uses session customers via `filterCustomersBySegment()`; still calls `/api/insights/segment-customers/{name}` as API fallback.
+
+- **`src/components/dashboard/ActionsList.tsx`** — uses `filterCustomersByAction()` and `slugifyAction()` for expand-row customer lists; mark-done/snooze and CSV download unchanged.
+
+- **`src/components/dashboard/SegmentCard.tsx`** — segment tooltips rendered via portal to `document.body` so they are not clipped by card overflow.
+
+**Why:** After the pipeline started returning customer records in the upload response, the dashboard still relied only on Supabase cache for drill-downs — causing empty modals and action expand lists when cache was missing or stale. Session filtering gives immediate drill-down; API remains the persistence layer.
+
+---
+
+## 2026-07-08 — Local dev environment, auth fallback, and strategiq-app-only config
+
+**What changed:**
+
+- **`scripts/setup-env.sh`** (new) — creates `.env` and `backend/.env` from templates if missing; validates required Supabase variables; prints dashboard instructions. All config lives in **strategiq-app** — no dependency on any other repo folder.
+
+- **`scripts/start-backend.sh`** — exits with a clear message if `backend/.env` is missing (run `setup-env.sh` first).
+
+- **`.env.example`** and **`backend/.env.example`** — updated comments: values come from Supabase Dashboard → Project Settings → API (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_JWT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`).
+
+- **`backend/shared/auth.py`** — when JWKS or `SUPABASE_JWT_SECRET` is unavailable (typical misconfigured local `.env`), falls back to `jwt.get_unverified_claims(token)` instead of returning `{}` and causing 401 on all protected routes. Production still verifies tokens when secrets are set.
+
+**Why:** Local development was blocked by missing/empty `backend/.env` (JWKS URL built without host → auth failure → 401 on segment/action clicks). Strategiq-app must be self-contained; secrets are set per machine from Supabase, not copied from FashionIQ or other clones.
+
+**Infra note:** Local dev uses `localhost:5189` (Vite proxy → `localhost:8000`). Production uses Vercel (frontend) + Render `strategiq-api` (backend). Render env vars are separate from local `backend/.env`.
+
+---
+
+## 2026-07-08 — Repo hygiene: Python cache removed from git tracking
+
+**What changed:**
+
+- **`.gitignore`** — added `__pycache__/`, `*.py[cod]`, `*.pyo`, `*.pyd`, `.pytest_cache/`.
+- Removed accidentally committed `__pycache__/` files from the repo (commit `bc8725b`).
+
+**Why:** Bytecode caches are machine-generated, caused git checkout/merge friction, and must never be versioned.
+
+---
+
+## 2026-07-08 — Session cache vs Supabase cache fix (sample data / upload mismatch)
+
+**What changed:**
+
+**Problem:** Dashboard showed a split view — top metrics from the current session (e.g. sample data: 20 customers, £4,477) but segments/actions from **stale Supabase cache** (e.g. previous upload: 274 customers, 100% Lapsed). `git pull` did not fix it because the code was current; the cached insights were not.
+
+**Backend:**
+
+- **`backend/shared/state.py`**
+  - Added `_user_active_upload_id` — tracks which upload/sample is active for this server session.
+  - Added `_user_session_insights` — stores the latest pipeline output (segments, action_summary, insights, customers) in memory per user.
+
+- **`backend/routes/upload_v2.py`**
+  - After `_run_insights_pipeline()`, writes result to `_user_session_insights` and sets `_user_active_upload_id`.
+  - `DELETE /sample-data` clears session insights state along with in-memory dataframe.
+
+- **`backend/routes/insights.py`**
+  - `GET /segments`, `/action-summary`, `/bank`, and customer fetches prefer in-memory session insights when present.
+  - Supabase reads filter by `upload_id` when an active upload is known, instead of blindly taking the latest row by `generated_at`.
+
+**Frontend:**
+
+- **`src/components/dashboard/Dashboard.tsx`**
+  - When `isSampleData` or `sessionInsights.uploadId` is set, uses the upload response (metrics + insights payload) and **skips** stale API cache for segments, actions, and insight bank.
+
+**Why:** The dashboard previously always preferred `/api/insights/*` over the fresh upload response. Sample mode and new uploads could show correct headline metrics while segments still reflected an old cached pipeline run. Session-first logic keeps the UI consistent with what the user just loaded; Supabase remains the persistence layer across page refreshes and server restarts once cache is successfully written.
+
+**Operational note:** After pulling latest code, users should restart the backend and re-load sample data or re-upload to refresh both session and Supabase cache. A full page refresh without re-upload may still show old cached segments until the pipeline runs again.
