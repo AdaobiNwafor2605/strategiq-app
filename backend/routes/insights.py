@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from services.supabase_service import db_select, db_upsert
+from services.recommendation_serializer import growth_plan_json_to_action_groups
 from shared.auth import require_auth
 
 logger = logging.getLogger(__name__)
@@ -206,11 +207,17 @@ async def get_action_summary(_user: dict = Depends(require_auth)):
         return JSONResponse(status_code=404, content={"error": "No action summary found. Upload data first."})
 
     record = rows[0]
+    summary = record.get("summary_json", {})
+    if not summary.get("groups") and summary.get("weekly_growth_plan"):
+        summary = {
+            **summary,
+            "groups": growth_plan_json_to_action_groups(summary["weekly_growth_plan"]),
+        }
     return {
         "success": True,
         "upload_id": record.get("upload_id"),
         "generated_at": record.get("generated_at"),
-        "summary": record.get("summary_json", {}),
+        "summary": summary,
     }
 
 

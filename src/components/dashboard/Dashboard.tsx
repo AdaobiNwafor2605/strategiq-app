@@ -14,11 +14,12 @@ import { SegmentCard } from './SegmentCard';
 import { SegmentModal } from './SegmentModal';
 import { ActionsList } from './ActionsList';
 import { InsightBank } from './InsightBank';
-import type { ActionGroup, ActionSummaryFull, InsightSegment } from '../../types';
+import type { ActionGroup, ActionSummaryFull, BankInsight, DashboardInsightsPayload, InsightSegment } from '../../types';
 
 interface DashboardProps {
   uploadedAt?: string | null;
   isSampleData?: boolean;
+  sessionInsights?: DashboardInsightsPayload | null;
   data: {
     total_revenue?: number;
     active_customers?: number;
@@ -68,12 +69,18 @@ function segmentsFromProps(
   }));
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSampleData }) => {
+export const Dashboard: React.FC<DashboardProps> = ({
+  data,
+  uploadedAt,
+  isSampleData,
+  sessionInsights,
+}) => {
   const { user } = useAuth();
   const currency = user?.currency ?? 'GBP';
 
   const [loading, setLoading] = useState(true);
   const [actionSummary, setActionSummary] = useState<ActionSummaryFull | null>(null);
+  const [bankInsights, setBankInsights] = useState<BankInsight[]>([]);
   const [segments, setSegments] = useState<InsightSegment[]>([]);
   const [uploadId, setUploadId] = useState<string | null>(null);
   const [selectedSegment, setSelectedSegment] = useState<InsightSegment | null>(null);
@@ -88,11 +95,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSample
     async function fetchData() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        if (!cancelled) setSegments(segmentsFromProps(data?.customer_segments));
+        if (!cancelled) {
+          setSegments(segmentsFromProps(data?.customer_segments));
+          setActionSummary(sessionInsights?.actionSummary ?? null);
+          setBankInsights(sessionInsights?.insights ?? []);
+          setUploadId(sessionInsights?.uploadId ?? null);
+        }
         return;
       }
 
       let nextSegments: InsightSegment[] = [];
+      let nextSummary: ActionSummaryFull | null = null;
+      let nextInsights: BankInsight[] = [];
+      let nextUploadId: string | null = null;
 
       // Fetch segments (7-segment breakdown from persisted customer insights)
       try {
@@ -114,9 +129,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSample
         });
         if (sumRes.ok) {
           const sumBody = await sumRes.json();
-          if (!cancelled && sumBody.success && sumBody.summary) {
-            setActionSummary(sumBody.summary as ActionSummaryFull);
-            setUploadId(sumBody.upload_id ?? null);
+          if (sumBody.success && sumBody.summary) {
+            nextSummary = sumBody.summary as ActionSummaryFull;
+            nextUploadId = sumBody.upload_id ?? null;
             if (nextSegments.length === 0 && sumBody.summary.segments?.length > 0) {
               nextSegments = sumBody.summary.segments;
             }
@@ -124,17 +139,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSample
         }
       } catch { /* silently skip */ }
 
-      // Sample data and in-session uploads include segments in metrics but may not
-      // have been persisted to Supabase yet — use the upload response as fallback.
+      // Fetch scored insight bank
+      try {
+        const bankRes = await fetch('/api/insights/bank', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (bankRes.ok) {
+          const bankBody = await bankRes.json();
+          if (bankBody.success && bankBody.insights?.length > 0) {
+            nextInsights = bankBody.insights;
+            if (!nextUploadId) nextUploadId = bankBody.upload_id ?? null;
+          }
+        }
+      } catch { /* silently skip */ }
+
+      // Upload response fallbacks — same session data that powers segment cards
       if (nextSegments.length === 0) {
         nextSegments = segmentsFromProps(data?.customer_segments);
       }
+      if (!nextSummary?.groups?.length && sessionInsights?.actionSummary) {
+        nextSummary = sessionInsights.actionSummary;
+      }
+      if (nextInsights.length === 0 && sessionInsights?.insights?.length) {
+        nextInsights = sessionInsights.insights;
+      }
+      if (!nextUploadId && sessionInsights?.uploadId) {
+        nextUploadId = sessionInsights.uploadId;
+      }
 
-      if (!cancelled) setSegments(nextSegments);
+      if (!cancelled) {
+        setSegments(nextSegments);
+        setActionSummary(nextSummary);
+        setBankInsights(nextInsights);
+        setUploadId(nextUploadId);
+      }
     }
     fetchData();
     return () => { cancelled = true; };
-  }, [data]);
+  }, [data, sessionInsights]);
 
   async function handleDownloadAll() {
     setDownloading(true);
@@ -481,7 +523,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSample
           </div>
         </CardHeader>
         <CardContent>
-          <InsightBank currency={currency} fallbackGroups={actionGroups} />
+          <InsightBank
+            currency={currency}
+            fallbackGroups={actionGroups}
+            sessionInsights={bankInsights}
+          />
         </CardContent>
       </Card>
 

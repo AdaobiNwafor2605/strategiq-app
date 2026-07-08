@@ -10,6 +10,7 @@ import type { ActionGroup, BankInsight, InsightCategory } from '../../types';
 interface InsightBankProps {
   currency: string;
   fallbackGroups?: ActionGroup[];
+  sessionInsights?: BankInsight[];
 }
 
 // Derive a simple insight card from an action group for users who haven't re-uploaded yet
@@ -97,7 +98,11 @@ const CONFIDENCE_BADGE: Record<string, string> = {
 
 const DEFAULT_SHOW = 3;
 
-export const InsightBank: React.FC<InsightBankProps> = ({ currency, fallbackGroups }) => {
+export const InsightBank: React.FC<InsightBankProps> = ({
+  currency,
+  fallbackGroups,
+  sessionInsights,
+}) => {
   const [insights, setInsights] = useState<BankInsight[]>([]);
   const [loading, setLoading] = useState(true);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
@@ -111,16 +116,26 @@ export const InsightBank: React.FC<InsightBankProps> = ({ currency, fallbackGrou
       setLoading(true);
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session || cancelled) return;
+        if (!session || cancelled) {
+          if (!cancelled && sessionInsights?.length) {
+            setInsights(sessionInsights);
+          }
+          return;
+        }
         sessionRef.current = session;
         const res = await fetch('/api/insights/bank', {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
-        if (!res.ok) return;
-        const body = await res.json();
-        if (!cancelled && body.success) {
-          setInsights(body.insights ?? []);
-          setGeneratedAt(body.generated_at ?? null);
+        if (res.ok) {
+          const body = await res.json();
+          if (!cancelled && body.success && body.insights?.length > 0) {
+            setInsights(body.insights ?? []);
+            setGeneratedAt(body.generated_at ?? null);
+            return;
+          }
+        }
+        if (!cancelled && sessionInsights?.length) {
+          setInsights(sessionInsights);
         }
       } catch { /* silently skip */ } finally {
         if (!cancelled) setLoading(false);
@@ -128,7 +143,7 @@ export const InsightBank: React.FC<InsightBankProps> = ({ currency, fallbackGrou
     }
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [sessionInsights]);
 
   async function handleDownload(insight: BankInsight) {
     setDownloading(d => ({ ...d, [insight.id]: true }));

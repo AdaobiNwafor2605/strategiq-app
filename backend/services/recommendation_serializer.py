@@ -46,22 +46,27 @@ def serialize_weekly_growth_plan(plan: WeeklyGrowthPlan) -> Dict:
 
 def growth_plan_to_action_groups(plan: WeeklyGrowthPlan) -> List[Dict]:
     """Flatten a Weekly Growth Plan into dashboard ActionGroup dicts."""
+    return growth_plan_json_to_action_groups(serialize_weekly_growth_plan(plan))
+
+
+def growth_plan_json_to_action_groups(plan_json: Dict) -> List[Dict]:
+    """Rebuild ActionGroup dicts from a serialized Weekly Growth Plan."""
+    if not plan_json:
+        return []
     bank = load_recommendation_bank()
     rec_by_id = {rec.id: rec for rec in bank.get_all()}
-
     groups: List[Dict] = []
-    for section in plan.sections:
-        for action in section.actions:
-            rec = rec_by_id.get(action.recommendation_id)
+    for section in plan_json.get("sections", []):
+        for action in section.get("actions", []):
+            rec = rec_by_id.get(action.get("recommendation_id", ""))
             groups.append({
-                "action": action.action,
+                "action": action.get("action", ""),
                 "action_priority": rec.priority.value if rec else "medium",
-                "customer_count": action.customer_count,
-                "total_revenue_at_stake": action.estimated_commercial_value,
-                "suggested_channel": action.channel,
-                "suggested_timing": action.timing,
+                "customer_count": int(action.get("customer_count", 0)),
+                "total_revenue_at_stake": float(action.get("estimated_commercial_value", 0)),
+                "suggested_channel": action.get("channel", "Email"),
+                "suggested_timing": action.get("timing", "This week"),
             })
-
     groups.sort(
         key=lambda g: (
             _PRIORITY_ORDER.get(g["action_priority"], 2),

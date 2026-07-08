@@ -248,6 +248,15 @@ export interface V2ProcessResponse {
   encoding_used?: string;
   uploaded_at?: string;
   is_sample_data?: boolean;
+  skipped_customers?: number;
+  action_summary?: ActionSummaryFull;
+  insights?: BankInsight[];
+}
+
+export interface DashboardInsightsPayload {
+  uploadId?: string;
+  actionSummary?: ActionSummaryFull;
+  insights?: BankInsight[];
 }
 
 export interface UploadHistoryEntry {
@@ -274,7 +283,12 @@ export interface V2SampleStatusResponse {
 }
 
 export interface DataUploadV2Props {
-  onProcessed: (data: ProcessingMetrics, uploadedAt: string, isSampleData: boolean) => void;
+  onProcessed: (
+    data: ProcessingMetrics,
+    uploadedAt: string,
+    isSampleData: boolean,
+    insightsPayload?: DashboardInsightsPayload,
+  ) => void;
   isSampleData: boolean;
   onClearSampleData: () => void;
 }

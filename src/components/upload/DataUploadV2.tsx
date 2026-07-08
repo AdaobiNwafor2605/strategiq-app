@@ -30,6 +30,15 @@ import {
   V2ProcessResponse,
 } from '../../types';
 
+function insightsPayloadFromResponse(data: V2ProcessResponse) {
+  if (!data.action_summary && !data.insights?.length) return undefined;
+  return {
+    uploadId: data.upload_id,
+    actionSummary: data.action_summary,
+    insights: data.insights,
+  };
+}
+
 // ── Wizard steps ─────────────────────────────────────────────────────────────
 
 type Step =
@@ -322,7 +331,12 @@ export const DataUploadV2: React.FC<DataUploadV2Props> = ({
           setStep('errors');
         } else {
           setStep('success');
-          onProcessed(data.metrics, data.uploaded_at ?? new Date().toISOString(), false);
+          onProcessed(
+            data.metrics,
+            data.uploaded_at ?? new Date().toISOString(),
+            false,
+            insightsPayloadFromResponse(data),
+          );
         }
       } else {
         setUploadError(data.error ?? 'Something went wrong while processing your file.');
@@ -347,7 +361,12 @@ export const DataUploadV2: React.FC<DataUploadV2Props> = ({
       const data: V2ProcessResponse = await res.json();
       if (data.success && data.metrics) {
         setResult(data);
-        onProcessed(data.metrics, data.uploaded_at ?? new Date().toISOString(), true);
+        onProcessed(
+          data.metrics,
+          data.uploaded_at ?? new Date().toISOString(),
+          true,
+          insightsPayloadFromResponse(data),
+        );
       } else {
         setUploadError(data.error ?? 'Could not load sample data.');
       }
@@ -389,7 +408,12 @@ export const DataUploadV2: React.FC<DataUploadV2Props> = ({
       const data: V2ProcessResponse = await res.json();
       if (data.success && data.metrics) {
         setResult(data);
-        onProcessed(data.metrics, data.uploaded_at ?? new Date().toISOString(), false);
+        onProcessed(
+          data.metrics,
+          data.uploaded_at ?? new Date().toISOString(),
+          false,
+          insightsPayloadFromResponse(data),
+        );
         setStep('success');
       }
     } catch { /* non-fatal */ }
@@ -399,7 +423,12 @@ export const DataUploadV2: React.FC<DataUploadV2Props> = ({
 
   function handleProceedDespiteErrors() {
     if (result?.metrics) {
-      onProcessed(result.metrics, result.uploaded_at ?? new Date().toISOString(), false);
+      onProcessed(
+        result.metrics,
+        result.uploaded_at ?? new Date().toISOString(),
+        false,
+        insightsPayloadFromResponse(result),
+      );
       setStep('success');
     }
   }

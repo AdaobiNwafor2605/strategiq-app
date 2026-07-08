@@ -27,6 +27,7 @@ from services.data_cleaner import DataCleaner
 from services.analytics import AnalyticsService
 from services.customer_insights import (
     build_customer_insights,
+    build_weekly_summary,
     compute_segments,
     _assign_segment,
     _analysis_reference_date,
@@ -449,7 +450,7 @@ def _apply_recommendation_engine(
         engine_output = create_recommendation_engine().run_from_rows(rows)
     except Exception as exc:
         logger.error("recommendation_engine: run failed: %s", exc, exc_info=True)
-        return {"generated_at": datetime.now(timezone.utc).isoformat(), "groups": []}, None
+        return build_weekly_summary(customer_df), None
 
     top_by_customer: Dict[str, object] = {}
     for result in engine_output.results:
@@ -602,7 +603,12 @@ def _run_insights_pipeline(df_clean: pd.DataFrame, user_id: str, upload_id: str)
         "insights: stored %d customer rows (%d skipped), %d insights, %d segments, for user %s",
         total_customers, skipped, len(insights), len(segments_with_trends), user_id,
     )
-    return {"skipped": skipped, "segments": segments_with_trends}
+    return {
+        "skipped": skipped,
+        "segments": segments_with_trends,
+        "action_summary": summary_json,
+        "insights": _json_safe(insights),
+    }
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -813,6 +819,8 @@ async def v2_process(
             "uploaded_at": uploaded_at,
             "is_sample_data": False,
             "skipped_customers": skipped_customers,
+            "action_summary": pipeline_out.get("action_summary"),
+            "insights": pipeline_out.get("insights"),
         })
 
     except Exception as exc:
@@ -859,6 +867,9 @@ async def v2_load_sample(_user: dict = Depends(require_auth)):
             "rows_processed": len(df_clean),
             "is_sample_data": True,
             "uploaded_at": uploaded_at,
+            "upload_id": sample_upload_id,
+            "action_summary": pipeline_out.get("action_summary"),
+            "insights": pipeline_out.get("insights"),
         })
 
     except Exception as exc:
@@ -970,6 +981,8 @@ async def v2_set_active(upload_id: str, _user: dict = Depends(require_auth)):
             "rows_processed": len(df_clean),
             "is_sample_data": False,
             "uploaded_at": entry.get("created_at"),
+            "action_summary": pipeline_out.get("action_summary"),
+            "insights": pipeline_out.get("insights"),
         })
 
     except Exception as exc:

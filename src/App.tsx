@@ -14,6 +14,7 @@ import { Dashboard } from './components/dashboard/Dashboard';
 import { DataUploadV2 } from './components/upload/DataUploadV2';
 import { Analytics } from './components/analytics/Analytics';
 import { PremiumFeatures } from './components/analytics/PremiumFeatures';
+import type { DashboardInsightsPayload } from './types';
 
 type Page =
   | 'landing'
@@ -36,6 +37,7 @@ const PROTECTED: Page[] = ['dashboard', 'upload', 'analytics', 'premium', 'profi
 const AppContent: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>('landing');
   const [dashboardData, setDashboardData] = useState<any>(null);
+  const [dashboardInsights, setDashboardInsights] = useState<DashboardInsightsPayload | null>(null);
   const [uploadedAt, setUploadedAt] = useState<string | null>(null);
   const [isSampleData, setIsSampleData] = useState(false);
   // Remember where a logged-out user was trying to go, so we can send them there after login
@@ -84,8 +86,14 @@ const AppContent: React.FC = () => {
 
   const handleNavigate = (page: string) => setCurrentPage(page as Page);
 
-  const handleProcessedData = (data: any, at: string, sample: boolean) => {
+  const handleProcessedData = (
+    data: any,
+    at: string,
+    sample: boolean,
+    insightsPayload?: DashboardInsightsPayload,
+  ) => {
     setDashboardData(data);
+    setDashboardInsights(insightsPayload ?? null);
     setUploadedAt(at);
     setIsSampleData(sample);
     setCurrentPage('dashboard');
@@ -96,6 +104,7 @@ const AppContent: React.FC = () => {
   const handleClearSampleData = () => {
     setIsSampleData(false);
     setDashboardData(null);
+    setDashboardInsights(null);
     setUploadedAt(null);
   };
 
@@ -168,7 +177,12 @@ const AppContent: React.FC = () => {
         )}
 
         {currentPage === 'dashboard' && (
-          <Dashboard data={dashboardData} uploadedAt={uploadedAt} isSampleData={isSampleData} />
+          <Dashboard
+            data={dashboardData}
+            uploadedAt={uploadedAt}
+            isSampleData={isSampleData}
+            sessionInsights={dashboardInsights}
+          />
         )}
 
         {currentPage === 'profile' && (
