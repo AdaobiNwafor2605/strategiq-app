@@ -53,6 +53,40 @@ def _customer_key_col(record: Dict) -> str:
     return str(record.get("customer_email") or record.get("customer_id") or "")
 
 
+def _customers_by_key(customers: List[Dict]) -> Dict[str, Dict]:
+    return {_customer_key_col(c): c for c in customers if _customer_key_col(c)}
+
+
+def _action_customer_ids(summary_json: Dict, action_key: str) -> List[str]:
+    """Resolve customer IDs for an action from the Weekly Growth Plan when available."""
+    plan = summary_json.get("weekly_growth_plan") or {}
+    ids: List[str] = []
+    for section in plan.get("sections", []):
+        for action in section.get("actions", []):
+            if _slugify(action.get("action", "")) == action_key:
+                ids.extend(action.get("customer_ids") or [])
+    return ids
+
+
+def _filter_customers_by_action(
+    customers: List[Dict],
+    action_key: str,
+    summary_json: Optional[Dict] = None,
+) -> List[Dict]:
+    """Match customers to an action via growth-plan IDs, then recommended_action slug."""
+    by_key = _customers_by_key(customers)
+    if summary_json:
+        plan_ids = _action_customer_ids(summary_json, action_key)
+        if plan_ids:
+            matched = [by_key[cid] for cid in plan_ids if cid in by_key]
+            if matched:
+                return matched
+    return [
+        c for c in customers
+        if _slugify(c.get("recommended_action", "")) == action_key
+    ]
+
+
 def _fetch_customers(user_id: str) -> List[Dict]:
     rows = db_select("customer_insights_cache", {"user_id": user_id}, order_by="generated_at.desc")
     if not rows:
@@ -321,10 +355,9 @@ async def download_action_csv(action_key: str, _user: dict = Depends(require_aut
         return JSONResponse(status_code=401, content={"error": "Unauthorised"})
 
     customers = _fetch_customers(user_id)
-    filtered = [
-        c for c in customers
-        if _slugify(c.get("recommended_action", "")) == action_key
-    ]
+    summary_rows = db_select("action_summary_cache", {"user_id": user_id}, order_by="generated_at.desc")
+    summary_json = summary_rows[0].get("summary_json", {}) if summary_rows else {}
+    filtered = _filter_customers_by_action(customers, action_key, summary_json)
 
     rows = [
         {
@@ -510,7 +543,10 @@ async def get_action_customers(action_key: str, _user: dict = Depends(require_au
         return JSONResponse(status_code=401, content={"error": "Unauthorised"})
 
     customers = _fetch_customers(user_id)
-    filtered = [
+    summary_rows = db_select("action_summary_cache", {"user_id": user_id}, order_by="generated_at.desc")
+    summary_json = summary_rows[0].get("summary_json", {}) if summary_rows else {}
+    filtered = _filter_customers_by_action(customers, action_key, summary_json)
+    rows = [
         {
             "email_or_id": _customer_key_col(c),
             "total_revenue": c.get("total_revenue", 0),
@@ -520,9 +556,8 @@ async def get_action_customers(action_key: str, _user: dict = Depends(require_au
             "channel": c.get("suggested_channel", ""),
             "timing": c.get("suggested_timing", ""),
         }
-        for c in customers
-        if _slugify(c.get("recommended_action", "")) == action_key
+        for c in filtered
     ]
-    filtered.sort(key=lambda x: float(x["total_revenue"]), reverse=True)
+    rows.sort(key=lambda x: float(x["total_revenue"]), reverse=True)
 
-    return {"success": True, "action_key": action_key, "customers": filtered, "count": len(filtered)}
+    return {"success": True, "action_key": action_key, "customers": rows, "count": len(rows)}

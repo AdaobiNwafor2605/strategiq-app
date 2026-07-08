@@ -608,6 +608,7 @@ def _run_insights_pipeline(df_clean: pd.DataFrame, user_id: str, upload_id: str)
         "segments": segments_with_trends,
         "action_summary": summary_json,
         "insights": _json_safe(insights),
+        "customers": records,
     }
 
 
@@ -821,6 +822,7 @@ async def v2_process(
             "skipped_customers": skipped_customers,
             "action_summary": pipeline_out.get("action_summary"),
             "insights": pipeline_out.get("insights"),
+            "customers": pipeline_out.get("customers"),
         })
 
     except Exception as exc:
@@ -870,6 +872,7 @@ async def v2_load_sample(_user: dict = Depends(require_auth)):
             "upload_id": sample_upload_id,
             "action_summary": pipeline_out.get("action_summary"),
             "insights": pipeline_out.get("insights"),
+            "customers": pipeline_out.get("customers"),
         })
 
     except Exception as exc:
@@ -983,6 +986,7 @@ async def v2_set_active(upload_id: str, _user: dict = Depends(require_auth)):
             "uploaded_at": entry.get("created_at"),
             "action_summary": pipeline_out.get("action_summary"),
             "insights": pipeline_out.get("insights"),
+            "customers": pipeline_out.get("customers"),
         })
 
     except Exception as exc:

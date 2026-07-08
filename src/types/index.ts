@@ -251,12 +251,14 @@ export interface V2ProcessResponse {
   skipped_customers?: number;
   action_summary?: ActionSummaryFull;
   insights?: BankInsight[];
+  customers?: Record<string, unknown>[];
 }
 
 export interface DashboardInsightsPayload {
   uploadId?: string;
   actionSummary?: ActionSummaryFull;
   insights?: BankInsight[];
+  customers?: Record<string, unknown>[];
 }
 
 export interface UploadHistoryEntry {
@@ -403,6 +405,7 @@ export interface ActionSummaryFull {
   revenue_at_risk?: number;
   revenue_opportunity?: number;
   what_changed?: string;
+  weekly_growth_plan?: Record<string, unknown>;
 }
 
 export interface ActionState {

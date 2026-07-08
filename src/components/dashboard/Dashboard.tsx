@@ -81,6 +81,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [loading, setLoading] = useState(true);
   const [actionSummary, setActionSummary] = useState<ActionSummaryFull | null>(null);
   const [bankInsights, setBankInsights] = useState<BankInsight[]>([]);
+  const [sessionCustomers, setSessionCustomers] = useState<Record<string, unknown>[]>([]);
   const [segments, setSegments] = useState<InsightSegment[]>([]);
   const [uploadId, setUploadId] = useState<string | null>(null);
   const [selectedSegment, setSelectedSegment] = useState<InsightSegment | null>(null);
@@ -99,6 +100,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           setSegments(segmentsFromProps(data?.customer_segments));
           setActionSummary(sessionInsights?.actionSummary ?? null);
           setBankInsights(sessionInsights?.insights ?? []);
+          setSessionCustomers(sessionInsights?.customers ?? []);
           setUploadId(sessionInsights?.uploadId ?? null);
         }
         return;
@@ -166,12 +168,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
       if (!nextUploadId && sessionInsights?.uploadId) {
         nextUploadId = sessionInsights.uploadId;
       }
-
       if (!cancelled) {
         setSegments(nextSegments);
         setActionSummary(nextSummary);
         setBankInsights(nextInsights);
         setUploadId(nextUploadId);
+        if (sessionInsights?.customers?.length) {
+          setSessionCustomers(sessionInsights.customers);
+        }
       }
     }
     fetchData();
@@ -503,6 +507,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             uploadId={uploadId}
             currency={currency}
             generatedAt={actionSummary?.generated_at ?? null}
+            sessionCustomers={sessionCustomers}
+            actionSummary={actionSummary}
           />
         </CardContent>
       </Card>
@@ -555,6 +561,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           segmentName={selectedSegment.name}
           segmentColor={selectedSegment.color}
           currency={currency}
+          sessionCustomers={sessionCustomers}
           onClose={() => setSelectedSegment(null)}
         />
       )}

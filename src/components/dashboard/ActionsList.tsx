@@ -4,20 +4,19 @@ import {
   Users, Loader2, Target, MessageSquare, Zap,
 } from 'lucide-react';
 import { supabase } from '../../contexts/AuthContext';
-import type { ActionCustomer, ActionGroup, ActionPriority } from '../../types';
+import type { ActionCustomer, ActionGroup, ActionPriority, ActionSummaryFull } from '../../types';
+import { filterCustomersByAction, slugifyAction } from '../../utils/customerFilters';
 
 interface ActionsListProps {
   groups: ActionGroup[];
   uploadId: string | null;
   currency: string;
   generatedAt: string | null;
+  sessionCustomers?: Record<string, unknown>[];
+  actionSummary?: ActionSummaryFull | null;
 }
 
 type PriorityFilter = 'all' | ActionPriority;
-
-function slugify(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-}
 
 function formatCurrency(value: number, currency: string): string {
   return new Intl.NumberFormat('en-GB', {
@@ -58,6 +57,8 @@ export const ActionsList: React.FC<ActionsListProps> = ({
   uploadId,
   currency,
   generatedAt,
+  sessionCustomers = [],
+  actionSummary = null,
 }) => {
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -107,33 +108,57 @@ export const ActionsList: React.FC<ActionsListProps> = ({
     [groups],
   );
 
-  const toggleExpanded = useCallback(async (actionKey: string) => {
-    setExpanded(prev => {
-      const next = !prev[actionKey];
-      if (next && !expandedData[actionKey]) {
-        // Fetch customers
-        setExpandedData(d => ({ ...d, [actionKey]: { loading: true, data: [] } }));
-        (async () => {
-          try {
-            const session = sessionRef.current;
-            if (!session) return;
-            const res = await fetch(`/api/insights/action-customers/${actionKey}`, {
-              headers: { Authorization: `Bearer ${session.access_token}` },
-            });
-            if (!res.ok) return;
-            const body = await res.json();
-            setExpandedData(d => ({
-              ...d,
-              [actionKey]: { loading: false, data: body.customers ?? [] },
-            }));
-          } catch {
-            setExpandedData(d => ({ ...d, [actionKey]: { loading: false, data: [] } }));
-          }
-        })();
+  const toggleExpanded = useCallback(async (actionKey: string, actionTitle: string) => {
+    const isOpening = !expanded[actionKey];
+    setExpanded(prev => ({ ...prev, [actionKey]: isOpening }));
+
+    if (!isOpening || expandedData[actionKey]) return;
+
+    setExpandedData(d => ({ ...d, [actionKey]: { loading: true, data: [] } }));
+
+    try {
+      let rows: ActionCustomer[] = [];
+      const session = sessionRef.current ?? (await supabase.auth.getSession()).data.session;
+      if (session) sessionRef.current = session;
+
+      if (session) {
+        const res = await fetch(`/api/insights/action-customers/${actionKey}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (res.ok) {
+          const body = await res.json();
+          rows = body.customers ?? [];
+        }
       }
-      return { ...prev, [actionKey]: next };
-    });
-  }, [expandedData]);
+
+      if (rows.length === 0 && sessionCustomers.length > 0) {
+        rows = filterCustomersByAction(
+          sessionCustomers,
+          actionKey,
+          actionTitle,
+          actionSummary?.weekly_growth_plan as Record<string, unknown> | undefined,
+        );
+      }
+
+      setExpandedData(d => ({
+        ...d,
+        [actionKey]: { loading: false, data: rows },
+      }));
+    } catch {
+      setExpandedData(d => ({
+        ...d,
+        [actionKey]: {
+          loading: false,
+          data: filterCustomersByAction(
+            sessionCustomers,
+            actionKey,
+            actionTitle,
+            actionSummary?.weekly_growth_plan as Record<string, unknown> | undefined,
+          ),
+        },
+      }));
+    }
+  }, [expanded, expandedData, sessionCustomers, actionSummary]);
 
   async function updateState(actionKey: string, patch: { is_done?: boolean; snoozed?: boolean }) {
     setPendingState(p => ({ ...p, [actionKey]: true }));
@@ -239,7 +264,7 @@ export const ActionsList: React.FC<ActionsListProps> = ({
       {/* Action rows */}
       <div className="divide-y divide-slate-100">
         {filteredGroups.map((group) => {
-          const actionKey = slugify(group.action);
+          const actionKey = slugifyAction(group.action);
           const state = actionStates[actionKey] ?? { is_done: false, snoozed: false, snooze_upload_id: null };
           const isExpanded = expanded[actionKey] ?? false;
           const expandInfo = expandedData[actionKey];
@@ -268,7 +293,7 @@ export const ActionsList: React.FC<ActionsListProps> = ({
                 <div className="flex-1 min-w-0">
                   <button
                     className="w-full text-left"
-                    onClick={() => toggleExpanded(actionKey)}
+                    onClick={() => toggleExpanded(actionKey, group.action)}
                     aria-expanded={isExpanded}
                   >
                     <div className="flex items-start justify-between gap-2">

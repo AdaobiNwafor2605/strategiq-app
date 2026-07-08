@@ -31,11 +31,12 @@ import {
 } from '../../types';
 
 function insightsPayloadFromResponse(data: V2ProcessResponse) {
-  if (!data.action_summary && !data.insights?.length) return undefined;
+  if (!data.action_summary && !data.insights?.length && !data.customers?.length) return undefined;
   return {
     uploadId: data.upload_id,
     actionSummary: data.action_summary,
     insights: data.insights,
+    customers: data.customers,
   };
 }
 

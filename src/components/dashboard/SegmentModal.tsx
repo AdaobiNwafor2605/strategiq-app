@@ -2,11 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { X, Download, Loader2, Users } from 'lucide-react';
 import { supabase } from '../../contexts/AuthContext';
 import type { SegmentCustomer } from '../../types';
+import { filterCustomersBySegment } from '../../utils/customerFilters';
 
 interface SegmentModalProps {
   segmentName: string;
   segmentColor: string;
   currency: string;
+  sessionCustomers?: Record<string, unknown>[];
   onClose: () => void;
 }
 
@@ -43,6 +45,7 @@ export const SegmentModal: React.FC<SegmentModalProps> = ({
   segmentName,
   segmentColor,
   currency,
+  sessionCustomers = [],
   onClose,
 }) => {
   const [customers, setCustomers] = useState<SegmentCustomer[]>([]);
@@ -56,23 +59,37 @@ export const SegmentModal: React.FC<SegmentModalProps> = ({
       setLoading(true);
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session || cancelled) return;
+        if (!session) {
+          if (!cancelled) {
+            setCustomers(filterCustomersBySegment(sessionCustomers, segmentName));
+          }
+          return;
+        }
         const res = await fetch(
           `/api/insights/segment-customers/${encodeURIComponent(segmentName)}`,
           { headers: { Authorization: `Bearer ${session.access_token}` } },
         );
-        if (!res.ok) return;
-        const body = await res.json();
-        if (!cancelled && body.success) setCustomers(body.customers ?? []);
+        if (res.ok) {
+          const body = await res.json();
+          if (!cancelled && body.success && body.customers?.length > 0) {
+            setCustomers(body.customers ?? []);
+            return;
+          }
+        }
+        if (!cancelled) {
+          setCustomers(filterCustomersBySegment(sessionCustomers, segmentName));
+        }
       } catch {
-        // Silently fail — show empty state
+        if (!cancelled) {
+          setCustomers(filterCustomersBySegment(sessionCustomers, segmentName));
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     load();
     return () => { cancelled = true; };
-  }, [segmentName]);
+  }, [segmentName, sessionCustomers]);
 
   // Close on Escape
   useEffect(() => {
