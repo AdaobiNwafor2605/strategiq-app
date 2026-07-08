@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 _PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
+# Bump when segment / recency logic changes — stale Supabase cache is refreshed on read.
+INSIGHTS_PIPELINE_VERSION = 2
+
 
 # ── Zero-safe division (mirrors safe_divide in main.py — not imported to avoid
 #    circular imports from the shared module) ───────────────────────────────────
@@ -48,7 +51,72 @@ def _analysis_reference_date(df: pd.DataFrame, has_date: bool) -> pd.Timestamp:
     return min(today, data_end)
 
 
-# ── Public entry point ────────────────────────────────────────────────────────
+def reference_date_from_customer_records(records: List[Dict]) -> pd.Timestamp:
+    """Reference date for cached customer rows (uses max last_order_date in the set)."""
+    today = pd.Timestamp.now().normalize()
+    if not records:
+        return today
+    dates = pd.to_datetime(
+        [r.get("last_order_date") for r in records if r.get("last_order_date")],
+        errors="coerce",
+    )
+    valid = dates.dropna()
+    if valid.empty:
+        return today
+    data_end = pd.Timestamp(valid.max()).normalize()
+    if hasattr(data_end, "tz") and data_end.tz is not None:
+        data_end = data_end.tz_localize(None)
+    return min(today, data_end)
+
+
+def refresh_customer_flags(records: List[Dict]) -> List[Dict]:
+    """
+    Re-apply recency flags and segment assignment using current logic.
+
+    Fixes stale Supabase cache where is_lapsed / days_since_last_order were
+    computed with an old reference date (e.g. wall-clock today on historical CSVs).
+    """
+    if not records:
+        return records
+
+    df = pd.DataFrame(records)
+    for col, default in (
+        ("total_revenue", 0.0),
+        ("order_count", 0),
+        ("discount_usage_rate", 0.0),
+        ("avg_days_between_orders", -1.0),
+    ):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(default)
+        else:
+            df[col] = default
+
+    has_date = "last_order_date" in df.columns and df["last_order_date"].notna().any()
+    ref = reference_date_from_customer_records(records) if has_date else pd.Timestamp.now().normalize()
+
+    if has_date:
+        df["last_order_date"] = pd.to_datetime(df["last_order_date"], errors="coerce")
+        df["days_since_last_order"] = (
+            (ref - df["last_order_date"]).dt.days.fillna(-1).astype(int)
+        )
+    elif "days_since_last_order" not in df.columns:
+        df["days_since_last_order"] = -1
+
+    revenue_top20 = df["total_revenue"].quantile(0.80) if len(df) >= 5 else 0.0
+    df["is_repeat_customer"] = df["order_count"] >= 2
+    df["is_one_time_buyer"] = df["order_count"] == 1
+    df["is_lapsed"] = df["days_since_last_order"] >= 180
+    df["is_discount_dependent"] = df["discount_usage_rate"] > 0.70
+    df["is_full_price_loyal"] = (df["order_count"] >= 2) & (df["discount_usage_rate"] == 0)
+    df["is_high_value"] = df["total_revenue"] >= revenue_top20
+    df["is_new_customer"] = (
+        (df["days_since_last_order"] >= 0) & (df["days_since_last_order"] <= 30)
+    )
+    df["is_at_risk"] = df.apply(_flag_at_risk, axis=1)
+    df["_segment"] = df.apply(_assign_segment, axis=1)
+
+    return df.to_dict(orient="records")
+
 
 def build_customer_insights(
     df: pd.DataFrame,

@@ -457,6 +457,7 @@ export interface SegmentCustomer {
   days_since_last_order: number;
   aov: number;
   recommended_action: string;
+  action_reason?: string;
   action_priority: ActionPriority;
 }
 
