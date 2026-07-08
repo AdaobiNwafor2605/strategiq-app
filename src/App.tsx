@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { LandingPage } from './components/landing/LandingPage';
+import { WaitlistLandingPage } from './components/landing/WaitlistLandingPage';
+import { LANDING_ONLY } from './config/appMode';
 import { LoginForm } from './components/auth/LoginForm';
 import { SignUpForm } from './components/auth/SignUpForm';
 import { ForgotPasswordForm } from './components/auth/ForgotPasswordForm';
@@ -36,8 +37,17 @@ type Page =
 // so logging out while on that screen should never set intendedPage = 'onboarding'
 const PROTECTED: Page[] = ['dashboard', 'upload', 'analytics', 'premium', 'profile', 'glossary'];
 
+const DEV_PAGES: Page[] = ['login', 'signup', 'forgot-password', 'dashboard', 'upload', 'analytics', 'premium', 'profile', 'glossary', 'onboarding'];
+
+const resolveInitialPage = (): Page => {
+  if (typeof window === 'undefined') return 'landing';
+  const hash = window.location.hash.replace(/^#/, '');
+  if (hash && DEV_PAGES.includes(hash as Page)) return hash as Page;
+  return 'landing';
+};
+
 const AppContent: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState<Page>('landing');
+  const [currentPage, setCurrentPage] = useState<Page>(resolveInitialPage);
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [dashboardInsights, setDashboardInsights] = useState<DashboardInsightsPayload | null>(null);
   const [uploadedAt, setUploadedAt] = useState<string | null>(null);
@@ -134,9 +144,9 @@ const AppContent: React.FC = () => {
     return (
       <>
         {currentPage === 'landing' && (
-          <LandingPage
-            onGetStarted={() => setCurrentPage('signup')}
-            onLogin={() => setCurrentPage('login')}
+          <WaitlistLandingPage
+            showDevLogin={import.meta.env.DEV}
+            onDevLogin={() => setCurrentPage('login')}
           />
         )}
         {currentPage === 'login' && (
@@ -231,6 +241,10 @@ const AppContent: React.FC = () => {
 };
 
 function App() {
+  if (LANDING_ONLY) {
+    return <WaitlistLandingPage />;
+  }
+
   return (
     <AuthProvider>
       <AppContent />

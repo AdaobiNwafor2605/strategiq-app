@@ -10,6 +10,7 @@
     "dev": "vite",
     "backend": "cd backend && python3 -m uvicorn main:app --reload --port 8000",
     "build": "vite build",
+    "build:landing": "vite build --mode landing",
     "lint": "eslint .",
     "preview": "vite preview"
   },
