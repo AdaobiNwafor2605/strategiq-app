@@ -31,3 +31,6 @@ dist-ssr
 .venv/
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
