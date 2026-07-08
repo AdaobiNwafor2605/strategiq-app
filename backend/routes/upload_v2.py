@@ -25,7 +25,8 @@ from fastapi.responses import JSONResponse
 from core_config import CORE_REQUIRED_COLUMNS
 from services.data_cleaner import DataCleaner
 from services.analytics import AnalyticsService
-from services.customer_insights import build_customer_insights, build_weekly_summary, compute_segments
+from services.customer_insights import build_customer_insights, build_weekly_summary, compute_segments, _assign_segment
+from services.insights_generator import generate_insight_bank, SEGMENT_BENCHMARKS
 from services.supabase_service import (
     db_insert, db_select, db_delete, db_upsert, db_update,
     storage_upload, storage_delete, storage_download,
@@ -353,6 +354,68 @@ def _customer_col(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
+def _compute_segment_trends(
+    new_segments: List[Dict], prev_segments: List[Dict]
+) -> List[Dict]:
+    """Add delta_customers and delta_revenue to each segment vs previous upload."""
+    prev_map = {s["name"]: s for s in prev_segments}
+    enriched = []
+    for seg in new_segments:
+        prev = prev_map.get(seg["name"])
+        enriched.append({
+            **seg,
+            "delta_customers": int(seg["customers"]) - int(prev["customers"]) if prev else 0,
+            "delta_revenue": round(float(seg["total_revenue"]) - float(prev["total_revenue"]), 2) if prev else 0.0,
+        })
+    return enriched
+
+
+def _generate_what_changed(
+    new_segments: List[Dict],
+    prev_segments: List[Dict],
+    new_total: int,
+    prev_total: int,
+) -> str:
+    """Produce a 2-3 sentence plain-English summary of what changed since the last upload."""
+    if not prev_segments:
+        return f"This is your first upload — {new_total} customers across {len(new_segments)} segments have been profiled."
+
+    delta_total = new_total - prev_total
+    direction = "up" if delta_total > 0 else "down" if delta_total < 0 else "unchanged"
+    sentences = [
+        f"Your total customer base is {direction} {abs(delta_total)} "
+        f"{'customer' if abs(delta_total) == 1 else 'customers'} "
+        f"(now {new_total})."
+    ]
+
+    prev_map = {s["name"]: s for s in prev_segments}
+    changes = []
+    for seg in new_segments:
+        prev = prev_map.get(seg["name"])
+        if prev:
+            delta = int(seg["customers"]) - int(prev["customers"])
+            if delta != 0:
+                changes.append((seg["name"], delta, float(seg["total_revenue"]) - float(prev["total_revenue"])))
+
+    if changes:
+        changes.sort(key=lambda x: abs(x[1]), reverse=True)
+        top = changes[0]
+        direction2 = "grew by" if top[1] > 0 else "shrank by"
+        sentences.append(
+            f"Biggest shift: {top[0]} {direction2} {abs(top[1])} "
+            f"customer{'s' if abs(top[1]) != 1 else ''} "
+            f"({'↑' if top[1] > 0 else '↓'}£{abs(top[2]):,.0f} revenue)."
+        )
+        if len(changes) > 1:
+            concern = next((c for c in changes if c[0] in ("Lapsed", "Going Quiet") and c[1] > 0), None)
+            if concern:
+                sentences.append(
+                    f"Watch out: {concern[0]} grew by {concern[1]} — consider a re-engagement campaign."
+                )
+
+    return " ".join(sentences)
+
+
 def _run_insights_pipeline(df_clean: pd.DataFrame, user_id: str, upload_id: str) -> int:
     """
     Aggregate df_clean into per-customer insights and persist to Supabase.
@@ -373,32 +436,101 @@ def _run_insights_pipeline(df_clean: pd.DataFrame, user_id: str, upload_id: str)
     if customer_df.empty:
         return skipped
 
+    # Read previous segments before overwriting (for trend computation)
+    prev_segments: List[Dict] = []
+    prev_total: int = 0
+    prev_rows = db_select("action_summary_cache", {"user_id": user_id}, order_by="generated_at.desc")
+    if prev_rows:
+        prev_json = prev_rows[0].get("summary_json", {})
+        prev_segments = prev_json.get("segments", [])
+        prev_total = int(prev_json.get("total_customers", 0))
+
+    # Stamp each customer with their segment so filtering by segment is trivial
+    customer_df["_segment"] = customer_df.apply(_assign_segment, axis=1)
+
     # Convert to JSON-safe records (handles Timestamps, numpy types, NaN)
     records = _json_safe(customer_df.to_dict(orient="records"))
 
     summary = build_weekly_summary(customer_df)
     segments = compute_segments(customer_df)
+    total_customers = len(customer_df)
+    total_revenue = float(customer_df["total_revenue"].sum()) if "total_revenue" in customer_df.columns else 0.0
 
-    # Upsert — the UNIQUE (user_id) constraint means this replaces the old row
+    # Segment enrichment: revenue %, trends, benchmarks
+    segments_with_trends = _compute_segment_trends(segments, prev_segments)
+    for seg in segments_with_trends:
+        seg["revenue_pct"] = round(seg["total_revenue"] / max(total_revenue, 1) * 100, 1)
+        bm = SEGMENT_BENCHMARKS.get(seg["name"], {})
+        seg["benchmark_note"] = bm.get("benchmark_note", "")
+        seg["description"] = bm.get("description", "")
+        seg["why"] = bm.get("why", "")
+        seg["how_to_treat"] = bm.get("how_to_treat", "")
+        seg["typical_pct"] = bm.get("typical_pct", "")
+
+    # Revenue at risk (lapsed + at-risk customers) and opportunity (new + window)
+    risk_mask = (
+        customer_df.get("is_lapsed", pd.Series(False, index=customer_df.index)) |
+        customer_df.get("is_at_risk", pd.Series(False, index=customer_df.index))
+    )
+    opp_mask = (
+        customer_df.get("is_new_customer", pd.Series(False, index=customer_df.index)) |
+        (
+            customer_df.get("is_one_time_buyer", pd.Series(False, index=customer_df.index)) &
+            (customer_df.get("days_since_last_order", pd.Series(-1, index=customer_df.index)) >= 30) &
+            (customer_df.get("days_since_last_order", pd.Series(-1, index=customer_df.index)) <= 60)
+        )
+    )
+    revenue_at_risk = round(float(customer_df[risk_mask]["total_revenue"].sum())
+                            if "total_revenue" in customer_df.columns else 0.0, 2)
+    revenue_opportunity = round(float(customer_df[opp_mask]["total_revenue"].sum())
+                                if "total_revenue" in customer_df.columns else 0.0, 2)
+
+    what_changed = _generate_what_changed(segments, prev_segments, total_customers, prev_total)
+
+    # Generate full insight bank
+    try:
+        insights = generate_insight_bank(customer_df, cust_col, total_revenue)
+    except Exception as exc:
+        logger.error("insights: generate_insight_bank failed: %s", exc, exc_info=True)
+        insights = []
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Upsert customer records — UNIQUE (user_id) replaces old row
     db_upsert("customer_insights_cache", {
         "user_id": user_id,
         "upload_id": upload_id,
         "data_json": records,
         "skipped_rows": skipped,
-        "row_count": len(customer_df),
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "row_count": total_customers,
+        "generated_at": now_iso,
     })
 
     db_upsert("action_summary_cache", {
         "user_id": user_id,
         "upload_id": upload_id,
-        "summary_json": {**summary, "segments": segments},
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "summary_json": {
+            **summary,
+            "segments": segments_with_trends,
+            "total_customers": total_customers,
+            "total_revenue": total_revenue,
+            "revenue_at_risk": revenue_at_risk,
+            "revenue_opportunity": revenue_opportunity,
+            "what_changed": what_changed,
+        },
+        "generated_at": now_iso,
+    })
+
+    db_upsert("insights_cache", {
+        "user_id": user_id,
+        "upload_id": upload_id,
+        "insights_json": _json_safe(insights),
+        "generated_at": now_iso,
     })
 
     logger.info(
-        "insights: stored %d customer rows (%d skipped) for user %s",
-        len(customer_df), skipped, user_id,
+        "insights: stored %d customer rows (%d skipped), %d insights, for user %s",
+        total_customers, skipped, len(insights), user_id,
     )
     return skipped
 

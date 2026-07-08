@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -196,9 +196,10 @@ def build_customer_insights(
     else:
         customer_df["is_high_return_risk"] = False
 
-    # ── Recommended action ────────────────────────────────────────────────────
+    # ── Recommended action + channel/timing ──────────────────────────────────
     actions = customer_df.apply(_assign_action, axis=1, result_type="expand")
-    customer_df[["recommended_action", "action_reason", "action_priority"]] = actions
+    customer_df[["recommended_action", "action_reason", "action_priority",
+                 "suggested_channel", "suggested_timing"]] = actions
 
     return customer_df, skipped
 
@@ -286,6 +287,15 @@ def build_weekly_summary(customer_df: pd.DataFrame) -> Dict:
         columns=["_p"]
     )
 
+    # Pull channel/timing from first customer in each group
+    channel_timing: Dict[str, Tuple[str, str]] = {}
+    if "suggested_channel" in customer_df.columns and "suggested_timing" in customer_df.columns:
+        for action, sub in customer_df.groupby("recommended_action"):
+            channel_timing[action] = (
+                sub["suggested_channel"].iloc[0],
+                sub["suggested_timing"].iloc[0],
+            )
+
     return {
         "generated_at": datetime.utcnow().isoformat(),
         "groups": [
@@ -294,6 +304,8 @@ def build_weekly_summary(customer_df: pd.DataFrame) -> Dict:
                 "action_priority": row["action_priority"],
                 "customer_count": int(row["customer_count"]),
                 "total_revenue_at_stake": round(float(row["total_revenue_at_stake"]), 2),
+                "suggested_channel": channel_timing.get(row["recommended_action"], ("Email", "This week"))[0],
+                "suggested_timing": channel_timing.get(row["recommended_action"], ("Email", "This week"))[1],
             }
             for _, row in grp.iterrows()
         ],
@@ -377,8 +389,8 @@ def _flag_at_risk(row) -> bool:
     return dslo > 2 * avg
 
 
-def _assign_action(row) -> Tuple[str, str, str]:
-    """Rule-based action assignment. Returns (action, reason, priority)."""
+def _assign_action(row) -> Tuple[str, str, str, str, str]:
+    """Rule-based action assignment. Returns (action, reason, priority, channel, timing)."""
     dslo = int(row.get("days_since_last_order", -1))
     count = int(row.get("order_count", 0))
     disc_pct = int(round(row.get("discount_usage_rate", 0) * 100))
@@ -388,39 +400,53 @@ def _assign_action(row) -> Tuple[str, str, str]:
             "Personal re-engagement — call, don't email",
             f"No purchase in {dslo} days and in top 20% by revenue. High-value lapsed customers need a personal touch.",
             "high",
+            "Personal outreach",
+            "Immediately",
         )
     if row.get("is_at_risk") and row.get("is_high_value"):
         return (
             "Send win-back email — offer genuine incentive",
             f"Last order {dslo} days ago — more than 2× their usual gap. High value. Act before they lapse.",
             "high",
+            "Email",
+            "This week",
         )
     if row.get("is_full_price_loyal"):
         return (
             "Add to VIP audience — no discount needed",
             f"{count} orders at full price, zero discounts used. Protect margin — keep them off discount lists.",
             "medium",
+            "Email / Ads",
+            "This month",
         )
     if row.get("is_new_customer"):
         return (
             "Send onboarding sequence",
             f"First purchase {dslo} days ago. Early nurture is critical for long-term retention.",
             "medium",
+            "Email",
+            "This week",
         )
     if row.get("is_one_time_buyer") and 30 <= dslo <= 60:
         return (
             "Send second-purchase nudge",
             f"One purchase {dslo} days ago — the 30–60 day window is the best time to convert to repeat buyer.",
             "medium",
+            "Email",
+            "This week",
         )
     if row.get("is_discount_dependent"):
         return (
             "Test at full price — may buy anyway",
             f"{disc_pct}% of orders used a discount. Worth testing removal — they may buy regardless.",
             "low",
+            "Email / Ads",
+            "Next campaign",
         )
     return (
         "Monitor — no immediate action",
         "No strong behavioural signal. Keep in regular communications.",
         "low",
+        "Regular comms",
+        "Ongoing",
     )

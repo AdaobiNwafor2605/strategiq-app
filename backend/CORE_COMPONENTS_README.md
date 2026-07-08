@@ -222,3 +222,23 @@ New standalone service — not a protected file. Aggregates cleaned order-level 
 - Data stored as JSONB blob per user in `customer_insights_cache` and `action_summary_cache` tables (upserted on every upload)
 
 **Not changed:** `data_cleaner.py`, `analytics.py`, `main.py (make_json_safe/safe_divide)`, `validators.py`, `core_config.py`
+
+---
+
+## 2026-07-07 — Dashboard upgrade: insights_generator.py + customer_insights.py updates (non-protected)
+
+**What added/changed:**
+
+**`backend/services/insights_generator.py`** (new, standalone, non-protected)
+Full scored insight bank generator. Called from `_run_insights_pipeline` in `upload_v2.py` after `build_customer_insights`. Six categories: `retention_risk`, `growth_opportunity`, `discount_inefficiency`, `cohort_quality`, `customer_concentration`, `product_concentration`. Score formula: `confidence × 40 + revenue_share × 40 + actionability × 20`. Generates up to 10 insights per upload. Stores `customer_keys` arrays (up to 200 per insight) for download drill-through. Also exports `SEGMENT_BENCHMARKS` dict used to enrich segment tooltips.
+
+**`backend/services/customer_insights.py`** (updated, non-protected)
+`_assign_action` expanded from 3-tuple to 5-tuple: added `suggested_channel` and `suggested_timing`. `build_weekly_summary` includes these in each group dict. `build_customer_insights` stores both on the customer DataFrame. `_assign_segment` now imported into `upload_v2.py` directly to stamp `_segment` on each customer record before storage (enables server-side filtering by segment).
+
+**`backend/routes/insights.py`** (major update — existing endpoints unchanged, new added)
+New endpoints: `GET /bank`, `GET /action-state`, `POST /action-state`, `GET /segment-customers/{name}`, `GET /action-customers/{key}`, `GET /download/segment/{name}`, `GET /download/action/{key}`, `GET /download/insight/{id}`, `GET /download/all`. All auth-checked via `require_auth`. All download endpoints are server-generated — no client-side CSV generation.
+
+**`backend/routes/upload_v2.py`** — `_run_insights_pipeline` extended (helper function only)
+Read previous segments → compute trends → stamp _segment on customers → enrich segments with revenue_pct/deltas/benchmarks → compute revenue_at_risk/opportunity → generate what_changed narrative → call generate_insight_bank → upsert to insights_cache. No changes to `_build_metrics`, `_run_pipeline`, `_validate_rows`, or any route handlers.
+
+**Not changed:** `data_cleaner.py`, `analytics.py`, `main.py (make_json_safe/safe_divide)`, `validators.py`, `core_config.py`

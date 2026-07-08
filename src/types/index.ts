@@ -352,3 +352,101 @@ export interface ActionSummaryResponse {
 export interface V2ProcessResponseWithInsights extends V2ProcessResponse {
   skipped_customers?: number;
 }
+
+// ── Dashboard upgrade types ───────────────────────────────────────────────────
+
+export interface InsightSegment {
+  name: string;
+  customers: number;
+  total_revenue: number;
+  avg_revenue: number;
+  color: string;
+  revenue_pct?: number;
+  delta_customers?: number;
+  delta_revenue?: number;
+  benchmark_note?: string;
+  description?: string;
+  why?: string;
+  how_to_treat?: string;
+  typical_pct?: string;
+}
+
+export interface ActionGroup {
+  action: string;
+  action_priority: ActionPriority;
+  customer_count: number;
+  total_revenue_at_stake: number;
+  suggested_channel: string;
+  suggested_timing: string;
+}
+
+export interface ActionSummaryFull {
+  generated_at: string;
+  groups: ActionGroup[];
+  segments: InsightSegment[];
+  total_customers?: number;
+  total_revenue?: number;
+  revenue_at_risk?: number;
+  revenue_opportunity?: number;
+  what_changed?: string;
+}
+
+export interface ActionState {
+  action_key: string;
+  is_done: boolean;
+  snoozed: boolean;
+  snooze_upload_id: string | null;
+}
+
+export type InsightConfidence = 'high' | 'medium' | 'low';
+export type InsightCategory =
+  | 'retention_risk'
+  | 'growth_opportunity'
+  | 'discount_inefficiency'
+  | 'product_concentration'
+  | 'cohort_quality'
+  | 'customer_concentration'
+  | 'seasonality';
+
+export interface BankInsight {
+  id: string;
+  category: InsightCategory;
+  headline: string;
+  explanation: string;
+  revenue_at_stake: number;
+  affected_count: number;
+  confidence: InsightConfidence;
+  suggested_action: string;
+  flag_citations: string[];
+  data_logic: string;
+  score: number;
+  customer_keys: string[];
+}
+
+export interface InsightBankResponse {
+  success: boolean;
+  upload_id: string | null;
+  generated_at: string;
+  insights: BankInsight[];
+}
+
+export interface SegmentCustomer {
+  email_or_id: string;
+  total_revenue: number;
+  order_count: number;
+  last_order_date: string;
+  days_since_last_order: number;
+  aov: number;
+  recommended_action: string;
+  action_priority: ActionPriority;
+}
+
+export interface ActionCustomer {
+  email_or_id: string;
+  total_revenue: number;
+  order_count: number;
+  last_order_date: string;
+  reason: string;
+  channel: string;
+  timing: string;
+}

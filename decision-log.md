@@ -751,3 +751,43 @@ Creates `customer_insights_cache` and `action_summary_cache` tables. One row per
 **Why:** Core analytics pipeline extension. Customer-level segmentation and recommended actions are the strategic output layer of StrategIQ — turning raw order data into per-customer next steps and a weekly priority queue for the brand owner.
 
 **Protected files touched:** None. `make_json_safe` and `safe_divide` in main.py were not modified. `data_cleaner.py`, `analytics.py`, `validators.py`, `core_config.py` were not touched.
+
+---
+
+## 2026-07-07 — Dashboard major upgrade: polished segment, action, and insight UI
+
+**What added:**
+
+**Backend:**
+
+- **`backend/services/insights_generator.py`** (new) — full scored insight bank. Six categories: `retention_risk`, `growth_opportunity`, `discount_inefficiency`, `cohort_quality`, `customer_concentration`, `product_concentration`. Each insight has: headline, explanation, revenue_at_stake, affected_count, confidence (high/medium/low), suggested_action, flag_citations, data_logic (for "Explain this"), score (0–100), and customer_keys (up to 200 email/IDs for drill-through). Score = confidence_score × 40 + revenue_share × 40 + actionability × 20.
+
+- **`backend/services/customer_insights.py`** (updated) — `_assign_action` now returns 5 values: added `suggested_channel` (Email / Personal outreach / Ads / Regular comms) and `suggested_timing` (Immediately / This week / This month / Next campaign / Ongoing). `build_weekly_summary` includes these in each group dict. `build_customer_insights` stores both new columns on the customer DataFrame.
+
+- **`backend/routes/upload_v2.py`** — `_run_insights_pipeline` extended to: (1) read previous `action_summary_cache` before overwriting for trend comparison, (2) stamp each customer with their `_segment` field, (3) enrich segments with revenue_pct/delta_customers/delta_revenue/benchmark_note/description/why/how_to_treat/typical_pct, (4) compute revenue_at_risk + revenue_opportunity, (5) generate "what changed" narrative (2-3 sentences), (6) call `generate_insight_bank`, (7) upsert full insight bank to `insights_cache`. Imports added: `_assign_segment`, `generate_insight_bank`, `SEGMENT_BENCHMARKS`.
+
+- **`backend/routes/insights.py`** (full rewrite) — new endpoints: `GET /bank` (scored insight bank), `GET /action-state` (done/snoozed state), `POST /action-state` (update state), `GET /segment-customers/{name}` (customers in a segment), `GET /action-customers/{key}` (customers for an action group), `GET /download/segment/{name}` (CSV), `GET /download/action/{key}` (CSV), `GET /download/insight/{id}` (CSV), `GET /download/all` (ZIP of all three CSVs named `strategiq-{section}-{date}.csv`).
+
+- **`supabase/migrations/20260707_action_state_insights.sql`** (new) — two new tables: `action_state` (mark-done + snooze per user per action_key, UNIQUE(user_id, action_key), RLS) and `insights_cache` (full insight bank JSONB, UNIQUE(user_id), RLS + service role bypass).
+
+**Frontend:**
+
+- **`src/components/dashboard/SegmentCard.tsx`** (new) — coloured segment card with: hover/focus info tooltip (definition, why it matters, how to treat, healthy range), trend arrows (↑↓ delta_customers + delta_revenue vs previous upload), revenue % badge, benchmark callout, click → opens segment modal. Keyboard accessible (Enter/Space).
+
+- **`src/components/dashboard/SegmentModal.tsx`** (new) — full customer list modal for a segment. Fetches from `/api/insights/segment-customers/{name}`. Columns: email/ID, total spent, orders, last order, recommended action. Sorted by revenue desc. Header shows segment colour. Download CSV button per segment.
+
+- **`src/components/dashboard/ActionsList.tsx`** (new) — full action group list. Features: filter by priority (all/high/medium/low), expandable rows showing customer sub-table (top 20), suggested channel + timing badges per row, mark-as-done toggle (persists to Supabase `action_state`), snooze-until-next-upload (compares `snooze_upload_id` to current `uploadId` — expires automatically when upload_id changes), per-row CSV download, monitor group shown at bottom in muted style, empty state with encouragement.
+
+- **`src/components/dashboard/InsightBank.tsx`** (new) — scored insight bank. Features: top 3 by default, "See all insights" expands full ranked list, each card shows category icon + badge, confidence badge, headline, explanation, revenue at stake, affected count, suggested action box, "Explain this" toggle (shows data_logic), per-insight CSV download, flag citation chips, refresh timestamp.
+
+- **`src/components/dashboard/Dashboard.tsx`** (major refactor) — uses new components. Added: `useAuth` for user currency (fixes hardcoded USD), "What changed" banner (purple, 2-3 sentences from pipeline), revenue-at-risk + revenue-at-opportunity headline cards (red/green), total customers + total revenue above segment grid, `<SegmentCard>` grid (with tooltips), `<SegmentModal>` on segment click, `<ActionsList>` (replaces compact list), `<InsightBank>` (replaces mock 3-card display), "Download everything (ZIP)" button, correct currency throughout.
+
+- **`src/types/index.ts`** (appended) — new types: `InsightSegment` (enriched with delta/benchmark fields), `ActionGroup` (with channel/timing), `ActionSummaryFull`, `ActionState`, `InsightConfidence`, `InsightCategory`, `BankInsight`, `InsightBankResponse`, `SegmentCustomer`, `ActionCustomer`.
+
+**Protected files touched:** None. All downloads are server-generated and auth-checked (service role key + `auth.uid()` via `require_auth`). All new tables have RLS. No changes to `make_json_safe`, `safe_divide`, `data_cleaner.py`, `analytics.py`, `validators.py`, or `core_config.py`.
+
+**Decision — JSONB storage for insights_cache:** Each insight contains a `customer_keys` array (up to 200 customer emails/IDs). The full insight bank is stored as a single JSONB blob per user — one row — rather than individual rows per insight. This keeps the API a single-row fetch and avoids bulk insert complexity. Download endpoints do a fresh in-memory filter against `customer_insights_cache.data_json` at request time rather than denormalising the customer data into the insights table.
+
+**Decision — snooze_upload_id comparison:** Snooze state stores the `upload_id` it was created for. When loading action groups, if `snooze_upload_id !== current_upload_id`, the snooze is considered expired (new data was uploaded). This gives true "snooze until next upload" semantics without a cron job or cleanup step.
+
+**Future (logged, not built):** Shareable read-only insight link per insight (auth-gated, expires 7 days) — to be built as a Supabase Edge Function generating a short-lived signed URL. See DECISION_LOG.md entry when implemented.
