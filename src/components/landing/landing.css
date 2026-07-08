@@ -240,6 +240,17 @@
   text-align: left;
 }
 
+.landing-page .frame-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+  margin-top: 0;
+}
+
+.landing-page .frame-stack .frame {
+  margin: 0 auto;
+}
+
 .landing-page .chrome {
   display: flex;
   align-items: center;

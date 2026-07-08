@@ -77,9 +77,9 @@ export const WaitlistLandingPage: React.FC<WaitlistLandingPageProps> = ({
           <WaitlistForm inputId="waitlist-email-hero" variant="default" />
 
           <BrowserFrame
-            url="app.strategiq.io"
-            imageSrc="/landing/screenshot-1.png"
-            imageAlt="StrategIQ dashboard showing customer segments and weekly actions"
+            url="strategiq.website"
+            imageSrc="/landing/dashboard.png"
+            imageAlt="StrategIQ dashboard showing revenue at risk, customer segments, and revenue forecast"
           />
         </div>
       </header>
@@ -203,13 +203,20 @@ export const WaitlistLandingPage: React.FC<WaitlistLandingPageProps> = ({
           </div>
 
           <div className="caption">
-            <div className="eyebrow">AND WHEN YOU WANT TO GO DEEPER</div>
+            <div className="eyebrow">YOUR WEEKLY PLAYBOOK</div>
           </div>
-          <BrowserFrame
-            url="app.strategiq.io/analytics"
-            imageSrc="/landing/screenshot-2.png"
-            imageAlt="StrategIQ advanced analytics view"
-          />
+          <div className="frame-stack">
+            <BrowserFrame
+              url="strategiq.website/dashboard"
+              imageSrc="/landing/customer-actions.png"
+              imageAlt="StrategIQ weekly customer actions ranked by priority and revenue at stake"
+            />
+            <BrowserFrame
+              url="strategiq.website/dashboard"
+              imageSrc="/landing/ai-insights.png"
+              imageAlt="StrategIQ AI-powered insights with actionable recommendations"
+            />
+          </div>
         </div>
       </section>
 
