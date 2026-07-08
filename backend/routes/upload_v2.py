@@ -44,9 +44,9 @@ from services.supabase_service import (
 )
 from shared.auth import require_auth
 from shared.state import (
+    _user_active_upload_id,
     _user_data,
     _user_sample_mode,
-    _user_active_upload_id,
     _user_session_insights,
 )
 from utils.validators import COLUMN_MAPPINGS, find_matching_column
@@ -460,17 +460,20 @@ def _apply_recommendation_engine(
     top_by_customer: Dict[str, object] = {}
     for result in engine_output.results:
         if result.recommendations:
-            top_by_customer[result.customer_id] = result.recommendations[0].recommendation
+            top_by_customer[result.customer_id] = result.recommendations[0]
 
     for idx, row in customer_df.iterrows():
         cid = str(row[cust_col])
-        rec = top_by_customer.get(cid)
-        if rec is None:
+        top = top_by_customer.get(cid)
+        if top is None:
             continue
+        rec = top.recommendation
         customer_df.at[idx, "recommended_action"] = rec.title
         customer_df.at[idx, "action_priority"] = rec.priority.value
         customer_df.at[idx, "suggested_channel"] = _format_rec_channel(rec.channel.value)
         customer_df.at[idx, "suggested_timing"] = _format_rec_timing(rec.timing.value)
+        if top.explanation is not None:
+            customer_df.at[idx, "action_reason"] = top.explanation.summary
 
     plan = engine_output.weekly_growth_plan
     summary_stub = {
@@ -608,16 +611,18 @@ def _run_insights_pipeline(df_clean: pd.DataFrame, user_id: str, upload_id: str)
         "insights: stored %d customer rows (%d skipped), %d insights, %d segments, for user %s",
         total_customers, skipped, len(insights), len(segments_with_trends), user_id,
     )
-    pipeline_result = {
+    result = {
         "skipped": skipped,
         "segments": segments_with_trends,
         "action_summary": summary_json,
         "insights": _json_safe(insights),
         "customers": records,
     }
+    # Keep an in-memory copy so reads immediately after this upload (same
+    # process) see fresh data without waiting on a Supabase round-trip.
     _user_active_upload_id[user_id] = upload_id
-    _user_session_insights[user_id] = pipeline_result
-    return pipeline_result
+    _user_session_insights[user_id] = result
+    return result
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────

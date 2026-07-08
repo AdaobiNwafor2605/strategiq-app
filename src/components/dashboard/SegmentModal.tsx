@@ -217,6 +217,7 @@ export const SegmentModal: React.FC<SegmentModalProps> = ({
                         className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${
                           PRIORITY_BADGE[c.action_priority] ?? PRIORITY_BADGE.low
                         }`}
+                        title={c.action_reason || undefined}
                       >
                         {c.recommended_action.length > 35
                           ? c.recommended_action.slice(0, 35) + '…'

@@ -1014,3 +1014,40 @@ Wired the new recommendation system end-to-end so uploads produce lifecycle segm
 **Why:** The dashboard previously always preferred `/api/insights/*` over the fresh upload response. Sample mode and new uploads could show correct headline metrics while segments still reflected an old cached pipeline run. Session-first logic keeps the UI consistent with what the user just loaded; Supabase remains the persistence layer across page refreshes and server restarts once cache is successfully written.
 
 **Operational note:** After pulling latest code, users should restart the backend and re-load sample data or re-upload to refresh both session and Supabase cache. A full page refresh without re-upload may still show old cached segments until the pipeline runs again.
+
+---
+
+## 2026-07-08 — Fix: tailored per-customer explanations wired to the UI
+
+**What was broken:** The Recommendation Engine already generated a personalised explanation per customer (real spend, order count, days overdue), but it never reached the customer. `_apply_recommendation_engine` in `backend/routes/upload_v2.py` only read `result.recommendations[0].recommendation` (the generic catalogue title) and discarded `.explanation`. Meanwhile `action_reason` — the field meant to carry a "why" — was still being filled by an old pre-engine rule-based function (`_assign_action` in `customer_insights.py`) that could describe a completely different rule than the one actually assigned, and in one branch recommended "call, don't email" — a direct violation of the Recommendation Engine's own channel rules. On top of that, `ActionsList.tsx` didn't render the `reason` field at all, even though the type and API already carried it.
+
+**What changed:**
+
+- `backend/routes/upload_v2.py` — `_apply_recommendation_engine` now captures the full `ScoredRecommendation` per customer and writes `explanation.summary` into `action_reason`, overwriting the stale legacy text.
+- `backend/routes/insights.py` — `action_reason` added to the segment-customers response and segment CSV export (previously only the action-customers endpoint/CSV had it).
+- `src/types/index.ts` — added `action_reason?: string` to `SegmentCustomer`.
+- `src/components/dashboard/ActionsList.tsx` — expanded action rows now show each customer's personalised reason under their name.
+- `src/components/dashboard/SegmentModal.tsx` — the action badge shows the tailored reason as a hover tooltip.
+
+Left `_assign_action` in place — its output is now fully overwritten downstream, so it's inert rather than actively wrong. Removing it is a separate cleanup.
+
+---
+
+## 2026-07-08 — Fix: stale Supabase cache overriding fresh segment/session data
+
+**Root cause:** `GET /api/insights/segments` returned segments straight from `action_summary_cache.summary_json.segments` without recomputing, so once that cache was written (e.g. with `is_lapsed` computed against an old reference date), every later read kept showing the same stale segment assignment — including "everyone looks Lapsed" — until a fresh upload overwrote the row. A second, more severe issue was found while fixing this: `backend/routes/insights.py` imported `_user_active_upload_id` and `_user_session_insights` from `backend/shared/state.py`, but those two dicts were never defined there — a hard `ImportError` that broke the entire insights router on every backend restart or branch switch, which is what actually produced the "UI keeps reverting" symptom.
+
+**What changed:**
+
+- `backend/shared/state.py` — added the missing `_user_active_upload_id: Dict[str, str]` and `_user_session_insights: Dict[str, Dict[str, Any]]`, fixing the ImportError.
+- `backend/routes/upload_v2.py` — `_run_insights_pipeline` now stores its result dict into `_user_session_insights[user_id]` and stamps `_user_active_upload_id[user_id]` at the end of every successful run, so reads immediately after an upload (same process) see fresh data without a Supabase round-trip. `DELETE /sample-data` clears both dicts alongside the existing `_user_data`/`_user_sample_mode` cleanup.
+- `backend/routes/insights.py`:
+  - `GET /segments` no longer returns cached segments directly. It always recomputes from `_fetch_customers()` (which runs `refresh_customer_flags()` to reassign `is_lapsed`/`is_at_risk`/etc. against the current reference date) via the existing `_segments_from_customers()` helper, using cached data only to merge in benchmark/trend metadata by segment name — never as the source of counts.
+  - `GET /customers` now runs `refresh_customer_flags()` on the cached rows before returning instead of serving `data_json` as-is.
+  - `GET /action-summary` and `GET /bank` now go through `_fetch_action_summary_row()` / `_fetch_insights_row()` (already written, previously unused) which check in-memory session state before falling back to Supabase, instead of doing a bare `db_select` — closing the same staleness gap consistently.
+  - `_fetch_insights()` (used by the insight/zip CSV downloads) now also checks session memory first.
+  - Removed the now-unused `_SEGMENT_ORDER` constant left behind by the `get_segments` rewrite.
+
+**Why in-memory session state is enough (no frontend change needed):** `Dashboard.tsx` already passes the just-uploaded data down as `sessionInsights` and only lets a subsequent `GET /api/insights/segments` / `/action-summary` / `/bank` override it when that call succeeds. Since those endpoints now check `_user_session_insights` (populated synchronously at the end of the same upload request, before Supabase) before ever touching the database, they return fresh data immediately, so the fresh upload response is no longer clobbered — without touching frontend data-fetching logic.
+
+**Known limitation:** `_user_session_insights` is process-local. If the backend ever runs multiple worker processes, an upload handled by one worker won't be visible in another worker's memory, and reads would fall back to Supabase (which is still correct, just without the same-process fast path). This matches the existing pattern for `_user_data`/`_user_sample_mode` and wasn't introduced by this fix.

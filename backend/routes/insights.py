@@ -25,6 +25,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from services.customer_insights import (
+    INSIGHTS_PIPELINE_VERSION,
+    compute_segments,
+    refresh_customer_flags,
+)
 from services.supabase_service import db_select, db_upsert
 from services.recommendation_serializer import growth_plan_json_to_action_groups
 from shared.auth import require_auth
@@ -88,20 +93,36 @@ def _filter_customers_by_action(
     ]
 
 
+def _merge_segment_enrichment(
+    computed: List[Dict],
+    cached: List[Dict],
+) -> List[Dict]:
+    """Keep benchmark/trend metadata from cache; counts come from fresh computation."""
+    by_name = {s.get("name"): s for s in cached if s.get("name")}
+    merged: List[Dict] = []
+    for seg in computed:
+        name = seg.get("name", "")
+        extra = by_name.get(name, {})
+        merged.append({**extra, **seg})
+    return merged
+
+
 def _fetch_customers(user_id: str) -> List[Dict]:
     session = _user_session_insights.get(user_id)
     if session and session.get("customers"):
-        return session["customers"]
+        return refresh_customer_flags(session["customers"])
 
     active_upload = _user_active_upload_id.get(user_id)
     rows = db_select("customer_insights_cache", {"user_id": user_id}, order_by="generated_at.desc")
+    raw: List[Dict] = []
     if active_upload:
         for row in rows:
             if row.get("upload_id") == active_upload:
-                return row.get("data_json") or []
-    if not rows:
-        return []
-    return rows[0].get("data_json") or []
+                raw = row.get("data_json") or []
+                break
+    if not raw and rows:
+        raw = rows[0].get("data_json") or []
+    return refresh_customer_flags(raw)
 
 
 def _fetch_action_summary_row(user_id: str) -> Optional[Dict]:
@@ -127,9 +148,11 @@ def _fetch_insights_row(user_id: str) -> Optional[Dict]:
     if session and session.get("insights") is not None:
         return {
             "upload_id": _user_active_upload_id.get(user_id),
-            "generated_at": session["action_summary"].get("generated_at")
-            if session.get("action_summary")
-            else None,
+            "generated_at": (
+                session.get("action_summary", {}).get("generated_at")
+                if session.get("action_summary")
+                else None
+            ),
             "insights_json": session["insights"],
         }
 
@@ -160,12 +183,32 @@ def _infer_segment(c: Dict) -> str:
 
 
 def _effective_segment(c: Dict) -> str:
-    """Return stored segment; fall back to on-the-fly inference from flag fields."""
+    """Return segment from refreshed _segment field or flag inference."""
     stored = c.get("_segment", "")
     return stored if stored else _infer_segment(c)
 
 
+def _segments_from_customers(customers: List[Dict], cached_segments: Optional[List[Dict]] = None) -> List[Dict]:
+    import pandas as pd
+
+    if not customers:
+        return []
+    segments = compute_segments(pd.DataFrame(customers))
+    total_revenue = sum(float(c.get("total_revenue", 0)) for c in customers)
+    for seg in segments:
+        seg["revenue_pct"] = round(
+            float(seg.get("total_revenue", 0)) / max(total_revenue, 1) * 100, 1
+        )
+        seg["color"] = _SEGMENT_COLORS.get(seg.get("name", ""), seg.get("color", "#6B7280"))
+    if cached_segments:
+        return _merge_segment_enrichment(segments, cached_segments)
+    return segments
+
+
 def _fetch_insights(user_id: str) -> List[Dict]:
+    session = _user_session_insights.get(user_id)
+    if session and session.get("insights") is not None:
+        return session["insights"]
     rows = db_select("insights_cache", {"user_id": user_id}, order_by="generated_at.desc")
     if not rows:
         return []
@@ -199,11 +242,6 @@ _SEGMENT_COLORS: Dict[str, str] = {
     "Discount Shoppers":"#EA580C",
 }
 
-_SEGMENT_ORDER = [
-    "VIPs", "Regulars", "New Customers", "One-Time Buyers",
-    "Going Quiet", "Lapsed", "Discount Shoppers",
-]
-
 
 # ── Core read endpoints ───────────────────────────────────────────────────────
 
@@ -224,68 +262,31 @@ async def get_customer_insights(_user: dict = Depends(require_auth)):
         "row_count": record.get("row_count", 0),
         "skipped_rows": record.get("skipped_rows", 0),
         "generated_at": record.get("generated_at"),
-        "data": record.get("data_json", []),
+        "data": refresh_customer_flags(record.get("data_json", [])),
     }
 
 
 @router.get("/segments")
 async def get_segments(_user: dict = Depends(require_auth)):
     """
-    Return the 7 lifecycle segments (VIPs, Regulars, …) from the
-    Recommendation Engine pipeline. Prefers enriched segments stored in
-    action_summary_cache; falls back to computing from customer_insights_cache.
+    Return the 7 lifecycle segments (VIPs, Regulars, …), always recomputed
+    from fresh customer flags. Cached action_summary_cache segments are only
+    used to enrich the result with benchmark/trend metadata, never as the
+    source of counts — that cache can predate a flag/segment logic change
+    (e.g. is_lapsed thresholds) and would otherwise show everyone stuck in
+    whatever segment they were in when it was written.
     """
     user_id = _user.get("sub")
     if not user_id:
         return JSONResponse(status_code=401, content={"error": "Unauthorised"})
 
-    session = _user_session_insights.get(user_id)
-    if session and session.get("segments"):
-        return {
-            "success": True,
-            "segments": session["segments"],
-            "upload_id": _user_active_upload_id.get(user_id),
-        }
-
-    summary_row = _fetch_action_summary_row(user_id)
-    if summary_row:
-        cached_segments = summary_row.get("summary_json", {}).get("segments", [])
-        if cached_segments:
-            return {
-                "success": True,
-                "segments": cached_segments,
-                "upload_id": summary_row.get("upload_id"),
-            }
-
     customers = _fetch_customers(user_id)
     if not customers:
         return JSONResponse(status_code=404, content={"error": "No customer data found."})
 
-    # Group customers by their effective segment
-    buckets: Dict[str, list] = {name: [] for name in _SEGMENT_ORDER}
-    for c in customers:
-        seg = _effective_segment(c)
-        if seg in buckets:
-            buckets[seg].append(c)
-
-    total_revenue = sum(float(c.get("total_revenue", 0)) for c in customers)
-
-    segments = []
-    for name in _SEGMENT_ORDER:
-        custs = buckets[name]
-        if not custs:
-            continue
-        seg_revenue = sum(float(c.get("total_revenue", 0)) for c in custs)
-        avg_revenue = seg_revenue / len(custs)
-        revenue_pct = round(seg_revenue / total_revenue * 100, 1) if total_revenue else 0
-        segments.append({
-            "name": name,
-            "customers": len(custs),
-            "total_revenue": round(seg_revenue, 2),
-            "avg_revenue": round(avg_revenue, 2),
-            "color": _SEGMENT_COLORS.get(name, "#6B7280"),
-            "revenue_pct": revenue_pct,
-        })
+    summary_row = _fetch_action_summary_row(user_id)
+    cached_segments = summary_row.get("summary_json", {}).get("segments", []) if summary_row else []
+    segments = _segments_from_customers(customers, cached_segments)
 
     return {"success": True, "segments": segments}
 
@@ -296,11 +297,10 @@ async def get_action_summary(_user: dict = Depends(require_auth)):
     if not user_id:
         return JSONResponse(status_code=401, content={"error": "Unauthorised"})
 
-    rows = _fetch_action_summary_row(user_id)
-    if not rows:
+    record = _fetch_action_summary_row(user_id)
+    if not record:
         return JSONResponse(status_code=404, content={"error": "No action summary found. Upload data first."})
 
-    record = rows
     summary = record.get("summary_json", {})
     if not summary.get("groups") and summary.get("weekly_growth_plan"):
         summary = {
@@ -325,6 +325,7 @@ async def get_insight_bank(_user: dict = Depends(require_auth)):
     record = _fetch_insights_row(user_id)
     if not record:
         return JSONResponse(status_code=404, content={"error": "No insights found. Upload data first."})
+
     return {
         "success": True,
         "upload_id": record.get("upload_id"),
@@ -394,6 +395,7 @@ async def download_segment_csv(segment_name: str, _user: dict = Depends(require_
             "avg_order_value": round(float(c.get("aov", 0)), 2),
             "days_since_last_order": c.get("days_since_last_order", ""),
             "recommended_action": c.get("recommended_action", ""),
+            "action_reason": c.get("action_reason", ""),
         }
         for c in filtered
     ]
@@ -401,7 +403,7 @@ async def download_segment_csv(segment_name: str, _user: dict = Depends(require_
     safe_name = re.sub(r"[^a-z0-9]+", "_", segment_name.lower())
     filename = f"strategiq-segment-{safe_name}-{_today_str()}.csv"
     fields = ["email_or_id", "segment", "total_spent", "orders", "last_order",
-              "avg_order_value", "days_since_last_order", "recommended_action"]
+              "avg_order_value", "days_since_last_order", "recommended_action", "action_reason"]
     return _csv_response(rows, fields, filename)
 
 
@@ -580,6 +582,7 @@ async def get_segment_customers(segment_name: str, _user: dict = Depends(require
             "days_since_last_order": c.get("days_since_last_order", -1),
             "aov": round(float(c.get("aov", 0)), 2),
             "recommended_action": c.get("recommended_action", ""),
+            "action_reason": c.get("action_reason", ""),
             "action_priority": c.get("action_priority", "low"),
         }
         for c in customers

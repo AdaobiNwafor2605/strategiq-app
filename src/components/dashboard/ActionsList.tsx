@@ -370,9 +370,17 @@ export const ActionsList: React.FC<ActionsListProps> = ({
                           </thead>
                           <tbody className="divide-y divide-slate-100">
                             {expandInfo.data.slice(0, 20).map((c, i) => (
-                              <tr key={i} className="hover:bg-slate-100/50">
-                                <td className="px-3 py-2 text-slate-700 truncate max-w-[160px]">
-                                  {c.email_or_id}
+                              <tr key={i} className="hover:bg-slate-100/50 align-top">
+                                <td className="px-3 py-2 text-slate-700 max-w-[220px]">
+                                  <div className="truncate">{c.email_or_id}</div>
+                                  {c.reason && (
+                                    <div
+                                      className="text-[11px] text-slate-400 font-normal mt-0.5 line-clamp-2"
+                                      title={c.reason}
+                                    >
+                                      {c.reason}
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-right text-slate-700 font-medium">
                                   {formatCurrency(c.total_revenue, currency)}
