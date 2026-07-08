@@ -148,12 +148,19 @@ async def get_customer_insights(_user: dict = Depends(require_auth)):
 @router.get("/segments")
 async def get_segments(_user: dict = Depends(require_auth)):
     """
-    Derive the 7-segment breakdown directly from customer_insights_cache.
-    Works on existing data without needing a re-upload.
+    Return the 7 lifecycle segments (VIPs, Regulars, …) from the
+    Recommendation Engine pipeline. Prefers enriched segments stored in
+    action_summary_cache; falls back to computing from customer_insights_cache.
     """
     user_id = _user.get("sub")
     if not user_id:
         return JSONResponse(status_code=401, content={"error": "Unauthorised"})
+
+    summary_rows = db_select("action_summary_cache", {"user_id": user_id}, order_by="generated_at.desc")
+    if summary_rows:
+        cached_segments = summary_rows[0].get("summary_json", {}).get("segments", [])
+        if cached_segments:
+            return {"success": True, "segments": cached_segments}
 
     customers = _fetch_customers(user_id)
     if not customers:

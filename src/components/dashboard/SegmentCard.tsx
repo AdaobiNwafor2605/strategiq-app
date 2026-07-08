@@ -53,6 +53,10 @@ const SEGMENT_INFO: Record<string, {
   },
 };
 
+function normalizeSegmentName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
 interface SegmentCardProps {
   segment: InsightSegment;
   totalRevenue: number;
@@ -80,7 +84,11 @@ export const SegmentCard: React.FC<SegmentCardProps> = ({
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
-  const info = SEGMENT_INFO[segment.name];
+  const info =
+    SEGMENT_INFO[segment.name] ??
+    Object.entries(SEGMENT_INFO).find(
+      ([key]) => normalizeSegmentName(key) === normalizeSegmentName(segment.name),
+    )?.[1];
   const description = segment.description || info?.description || '';
   const why = segment.why || info?.why || '';
   const how_to_treat = segment.how_to_treat || info?.how_to_treat || '';
@@ -121,6 +129,15 @@ export const SegmentCard: React.FC<SegmentCardProps> = ({
     if (closeTimer.current) clearTimeout(closeTimer.current);
   }
 
+  function toggleTooltip(e: React.MouseEvent<HTMLButtonElement>) {
+    e.stopPropagation();
+    if (tooltipOpen) {
+      setTooltipOpen(false);
+      return;
+    }
+    showTooltip();
+  }
+
   return (
     <div
       className="rounded-xl p-4 text-white shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-[1.02] flex flex-col justify-between min-h-[130px] relative overflow-visible"
@@ -148,10 +165,20 @@ export const SegmentCard: React.FC<SegmentCardProps> = ({
             ref={btnRef}
             type="button"
             className="shrink-0 w-5 h-5 rounded-full bg-white/20 hover:bg-white/40 flex items-center justify-center transition-colors"
-            onClick={(e) => e.stopPropagation()}
+            onClick={toggleTooltip}
             onMouseEnter={showTooltip}
             onMouseLeave={hideTooltip}
+            onFocus={showTooltip}
+            onBlur={hideTooltip}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation();
+                setTooltipOpen(false);
+              }
+            }}
             aria-label={`What is ${segment.name}?`}
+            aria-haspopup="dialog"
+            aria-expanded={tooltipOpen}
           >
             <Info className="w-3 h-3 text-white" />
           </button>
@@ -163,10 +190,26 @@ export const SegmentCard: React.FC<SegmentCardProps> = ({
         {segment.customers.toLocaleString()} customer{segment.customers !== 1 ? 's' : ''}
       </div>
 
-      {hasTrend && (
-        <div className="flex items-center gap-1 text-xs text-white/80 mt-0.5">
-          {trendUp ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-          <span>{trendUp ? '+' : ''}{segment.delta_customers} since last upload</span>
+      {(hasTrend || hasRevTrend) && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-white/80 mt-0.5">
+          {hasTrend && (
+            <span className="inline-flex items-center gap-1">
+              {trendUp ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+              {trendUp ? '+' : ''}
+              {segment.delta_customers} customers
+            </span>
+          )}
+          {hasRevTrend && (
+            <span className="inline-flex items-center gap-1">
+              {(segment.delta_revenue ?? 0) > 0 ? (
+                <TrendingUp className="w-3 h-3" />
+              ) : (
+                <TrendingDown className="w-3 h-3" />
+              )}
+              {(segment.delta_revenue ?? 0) > 0 ? '+' : ''}
+              {formatCurrency(segment.delta_revenue ?? 0, currency)}
+            </span>
+          )}
         </div>
       )}
 
@@ -183,11 +226,8 @@ export const SegmentCard: React.FC<SegmentCardProps> = ({
             {revPct}% of rev
           </span>
         </div>
-        {hasRevTrend && (
-          <div className="text-xs text-white/70 mt-0.5">
-            {(segment.delta_revenue ?? 0) > 0 ? '+' : ''}
-            {formatCurrency(segment.delta_revenue ?? 0, currency)} vs last
-          </div>
+        {(hasTrend || hasRevTrend) && (
+          <div className="text-xs text-white/70 mt-0.5">vs previous upload</div>
         )}
       </div>
 

@@ -19,6 +19,20 @@ function formatCurrency(value: number, currency: string): string {
   }).format(value);
 }
 
+function deriveCustomerName(customer: SegmentCustomer): string {
+  if (customer.name && customer.name.trim()) return customer.name;
+  const source = customer.email ?? customer.email_or_id ?? '';
+  if (source.includes('@')) {
+    const local = source.split('@')[0];
+    return local
+      .replace(/[._-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (c) => c.toUpperCase()) || 'Unknown';
+  }
+  return 'Unknown';
+}
+
 const PRIORITY_BADGE: Record<string, string> = {
   high: 'bg-red-100 text-red-700',
   medium: 'bg-amber-100 text-amber-700',
@@ -155,7 +169,8 @@ export const SegmentModal: React.FC<SegmentModalProps> = ({
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-50 border-b border-slate-100">
                 <tr>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-600">Customer</th>
+                  <th className="text-left px-4 py-3 font-semibold text-slate-600">Name</th>
+                  <th className="text-left px-4 py-3 font-semibold text-slate-600">Email / ID</th>
                   <th className="text-right px-4 py-3 font-semibold text-slate-600">Total Spent</th>
                   <th className="text-right px-4 py-3 font-semibold text-slate-600">Orders</th>
                   <th className="text-right px-4 py-3 font-semibold text-slate-600 hidden sm:table-cell">Last Order</th>
@@ -165,8 +180,11 @@ export const SegmentModal: React.FC<SegmentModalProps> = ({
               <tbody className="divide-y divide-slate-50">
                 {customers.map((c, i) => (
                   <tr key={i} className="hover:bg-slate-50/50">
-                    <td className="px-4 py-3 text-slate-800 font-medium truncate max-w-[180px]">
-                      {c.email_or_id}
+                    <td className="px-4 py-3 text-slate-800 font-medium truncate max-w-[160px]">
+                      {deriveCustomerName(c)}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 truncate max-w-[220px]">
+                      {c.email ?? c.email_or_id}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-800 font-semibold">
                       {formatCurrency(c.total_revenue, currency)}

@@ -57,6 +57,17 @@ function formatCurrency(value: number, currency: string): string {
   }).format(value);
 }
 
+function segmentsFromProps(
+  customerSegments: NonNullable<DashboardProps['data']>['customer_segments'],
+): InsightSegment[] {
+  if (!customerSegments?.length) return [];
+  const totalRevenue = customerSegments.reduce((sum, seg) => sum + seg.total_revenue, 0);
+  return customerSegments.map((seg) => ({
+    ...seg,
+    revenue_pct: Math.round((seg.total_revenue / Math.max(totalRevenue, 1)) * 1000) / 10,
+  }));
+}
+
 export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSampleData }) => {
   const { user } = useAuth();
   const currency = user?.currency ?? 'GBP';
@@ -76,17 +87,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSample
     let cancelled = false;
     async function fetchData() {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      if (!session) {
+        if (!cancelled) setSegments(segmentsFromProps(data?.customer_segments));
+        return;
+      }
 
-      // Fetch segments (7-segment breakdown, always works from existing customer data)
+      let nextSegments: InsightSegment[] = [];
+
+      // Fetch segments (7-segment breakdown from persisted customer insights)
       try {
         const segRes = await fetch('/api/insights/segments', {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
         if (segRes.ok) {
           const segBody = await segRes.json();
-          if (!cancelled && segBody.success && segBody.segments?.length > 0) {
-            setSegments(segBody.segments);
+          if (segBody.success && segBody.segments?.length > 0) {
+            nextSegments = segBody.segments;
           }
         }
       } catch { /* silently skip */ }
@@ -101,13 +117,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ data, uploadedAt, isSample
           if (!cancelled && sumBody.success && sumBody.summary) {
             setActionSummary(sumBody.summary as ActionSummaryFull);
             setUploadId(sumBody.upload_id ?? null);
+            if (nextSegments.length === 0 && sumBody.summary.segments?.length > 0) {
+              nextSegments = sumBody.summary.segments;
+            }
           }
         }
       } catch { /* silently skip */ }
+
+      // Sample data and in-session uploads include segments in metrics but may not
+      // have been persisted to Supabase yet — use the upload response as fallback.
+      if (nextSegments.length === 0) {
+        nextSegments = segmentsFromProps(data?.customer_segments);
+      }
+
+      if (!cancelled) setSegments(nextSegments);
     }
     fetchData();
     return () => { cancelled = true; };
-  }, []);
+  }, [data]);
 
   async function handleDownloadAll() {
     setDownloading(true);

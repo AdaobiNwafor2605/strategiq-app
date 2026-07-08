@@ -431,6 +431,8 @@ export interface InsightBankResponse {
 }
 
 export interface SegmentCustomer {
+  name?: string;
+  email?: string;
   email_or_id: string;
   total_revenue: number;
   order_count: number;

@@ -25,8 +25,18 @@ from fastapi.responses import JSONResponse
 from core_config import CORE_REQUIRED_COLUMNS
 from services.data_cleaner import DataCleaner
 from services.analytics import AnalyticsService
-from services.customer_insights import build_customer_insights, build_weekly_summary, compute_segments, _assign_segment
+from services.customer_insights import (
+    build_customer_insights,
+    compute_segments,
+    _assign_segment,
+    _analysis_reference_date,
+)
 from services.insights_generator import generate_insight_bank, SEGMENT_BENCHMARKS
+from services.recommendation_engine import create_recommendation_engine
+from services.recommendation_serializer import (
+    growth_plan_to_action_groups,
+    serialize_weekly_growth_plan,
+)
 from services.supabase_service import (
     db_insert, db_select, db_delete, db_upsert, db_update,
     storage_upload, storage_delete, storage_download,
@@ -321,7 +331,7 @@ def _run_pipeline(
     return cleaner.clean_dataframe(df, column_mappings), encoding_used
 
 
-def _build_metrics(df_clean: pd.DataFrame, user_id: str) -> Dict:
+def _build_metrics(df_clean: pd.DataFrame, user_id: str, segments: Optional[List[Dict]] = None) -> Dict:
     """Store cleaned df in shared state and compute analytics metrics."""
     _user_data[user_id] = df_clean
     analytics = AnalyticsService(df_clean)
@@ -332,16 +342,9 @@ def _build_metrics(df_clean: pd.DataFrame, user_id: str) -> Dict:
         "average_order_value": metrics.avg_order_value,
         "churn_risk": metrics.churn_risk_percentage,
         "revenue_forecast": metrics.revenue_forecast,
-        "customer_segments": [
-            {
-                "name": s.name,
-                "color": s.color,
-                "customers": s.customers,
-                "total_revenue": s.total_revenue,
-                "avg_revenue": s.avg_revenue,
-            }
-            for s in metrics.customer_segments
-        ],
+        # Lifecycle segments (VIPs, Regulars, …) come from the recommendation-engine
+        # pipeline — never the legacy RFM segments from AnalyticsService.
+        "customer_segments": segments or [],
         "columns_found": list(df_clean.columns),
     })
 
@@ -416,25 +419,83 @@ def _generate_what_changed(
     return " ".join(sentences)
 
 
-def _run_insights_pipeline(df_clean: pd.DataFrame, user_id: str, upload_id: str) -> int:
+def _format_rec_channel(channel_value: str) -> str:
+    return channel_value.replace("_", " ").title()
+
+
+def _format_rec_timing(timing_value: str) -> str:
+    return timing_value.replace("_", " ").title()
+
+
+def _apply_recommendation_engine(
+    customer_df: pd.DataFrame,
+    cust_col: str,
+) -> Tuple[Dict, Optional[Dict]]:
     """
-    Aggregate df_clean into per-customer insights and persist to Supabase.
-    Returns skipped_count (rows with blank customer identifier).
+    Run the Recommendation Engine v1 pipeline on aggregated customer rows.
+
+    Returns (action_summary_stub, weekly_growth_plan_json) and mutates
+    customer_df in place with engine-assigned recommended_action fields.
+    """
+    rows = [
+        (str(row[cust_col]), row)
+        for row in customer_df.to_dict(orient="records")
+        if row.get(cust_col) not in (None, "")
+    ]
+    if not rows:
+        return {"generated_at": datetime.now(timezone.utc).isoformat(), "groups": []}, None
+
+    try:
+        engine_output = create_recommendation_engine().run_from_rows(rows)
+    except Exception as exc:
+        logger.error("recommendation_engine: run failed: %s", exc, exc_info=True)
+        return {"generated_at": datetime.now(timezone.utc).isoformat(), "groups": []}, None
+
+    top_by_customer: Dict[str, object] = {}
+    for result in engine_output.results:
+        if result.recommendations:
+            top_by_customer[result.customer_id] = result.recommendations[0].recommendation
+
+    for idx, row in customer_df.iterrows():
+        cid = str(row[cust_col])
+        rec = top_by_customer.get(cid)
+        if rec is None:
+            continue
+        customer_df.at[idx, "recommended_action"] = rec.title
+        customer_df.at[idx, "action_priority"] = rec.priority.value
+        customer_df.at[idx, "suggested_channel"] = _format_rec_channel(rec.channel.value)
+        customer_df.at[idx, "suggested_timing"] = _format_rec_timing(rec.timing.value)
+
+    plan = engine_output.weekly_growth_plan
+    summary_stub = {
+        "generated_at": plan.generated_at,
+        "groups": growth_plan_to_action_groups(plan),
+    }
+    return summary_stub, serialize_weekly_growth_plan(plan)
+
+
+def _run_insights_pipeline(df_clean: pd.DataFrame, user_id: str, upload_id: str) -> Dict[str, Any]:
+    """
+    Aggregate df_clean into per-customer insights, run the Recommendation Engine,
+    and persist results to Supabase.
+
+    Returns dict with skipped count and enriched lifecycle segments for metrics.
     Runs in a thread-pool executor — do not call directly from async context.
     """
+    empty: Dict[str, Any] = {"skipped": 0, "segments": []}
     cust_col = _customer_col(df_clean)
     if cust_col is None:
         logger.info("insights: no customer column found, skipping pipeline")
-        return 0
+        return empty
 
     try:
         customer_df, skipped = build_customer_insights(df_clean, cust_col)
     except Exception as exc:
         logger.error("insights: build_customer_insights failed: %s", exc, exc_info=True)
-        return 0
+        return empty
 
     if customer_df.empty:
-        return skipped
+        return {**empty, "skipped": skipped}
 
     # Read previous segments before overwriting (for trend computation)
     prev_segments: List[Dict] = []
@@ -445,13 +506,15 @@ def _run_insights_pipeline(df_clean: pd.DataFrame, user_id: str, upload_id: str)
         prev_segments = prev_json.get("segments", [])
         prev_total = int(prev_json.get("total_customers", 0))
 
-    # Stamp each customer with their segment so filtering by segment is trivial
+    # Lifecycle segment stamp (VIPs, Regulars, Going Quiet, …)
     customer_df["_segment"] = customer_df.apply(_assign_segment, axis=1)
+
+    # Recommendation Engine v1 — actions, weekly growth plan, per-customer recommendations
+    summary, weekly_growth_plan = _apply_recommendation_engine(customer_df, cust_col)
 
     # Convert to JSON-safe records (handles Timestamps, numpy types, NaN)
     records = _json_safe(customer_df.to_dict(orient="records"))
 
-    summary = build_weekly_summary(customer_df)
     segments = compute_segments(customer_df)
     total_customers = len(customer_df)
     total_revenue = float(customer_df["total_revenue"].sum()) if "total_revenue" in customer_df.columns else 0.0
@@ -487,6 +550,8 @@ def _run_insights_pipeline(df_clean: pd.DataFrame, user_id: str, upload_id: str)
 
     what_changed = _generate_what_changed(segments, prev_segments, total_customers, prev_total)
 
+    ref_date = _analysis_reference_date(df_clean, cust_col is not None and "order_date" in df_clean.columns)
+
     # Generate full insight bank
     try:
         insights = generate_insight_bank(customer_df, cust_col, total_revenue)
@@ -506,18 +571,23 @@ def _run_insights_pipeline(df_clean: pd.DataFrame, user_id: str, upload_id: str)
         "generated_at": now_iso,
     })
 
+    summary_json: Dict[str, Any] = {
+        **summary,
+        "segments": segments_with_trends,
+        "total_customers": total_customers,
+        "total_revenue": total_revenue,
+        "revenue_at_risk": revenue_at_risk,
+        "revenue_opportunity": revenue_opportunity,
+        "what_changed": what_changed,
+        "analysis_reference_date": ref_date.isoformat(),
+    }
+    if weekly_growth_plan is not None:
+        summary_json["weekly_growth_plan"] = weekly_growth_plan
+
     db_upsert("action_summary_cache", {
         "user_id": user_id,
         "upload_id": upload_id,
-        "summary_json": {
-            **summary,
-            "segments": segments_with_trends,
-            "total_customers": total_customers,
-            "total_revenue": total_revenue,
-            "revenue_at_risk": revenue_at_risk,
-            "revenue_opportunity": revenue_opportunity,
-            "what_changed": what_changed,
-        },
+        "summary_json": summary_json,
         "generated_at": now_iso,
     })
 
@@ -529,10 +599,10 @@ def _run_insights_pipeline(df_clean: pd.DataFrame, user_id: str, upload_id: str)
     })
 
     logger.info(
-        "insights: stored %d customer rows (%d skipped), %d insights, for user %s",
-        total_customers, skipped, len(insights), user_id,
+        "insights: stored %d customer rows (%d skipped), %d insights, %d segments, for user %s",
+        total_customers, skipped, len(insights), len(segments_with_trends), user_id,
     )
-    return skipped
+    return {"skipped": skipped, "segments": segments_with_trends}
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -716,14 +786,13 @@ async def v2_process(
         storage_path = f"{user_id}/{upload_id}/{filename}"
         storage_upload(storage_path, content, content_type)
 
-        # Compute metrics and store in session
-        metrics = _build_metrics(df_clean, user_id)
-        _user_sample_mode[user_id] = False
-
-        # Build customer-level insights and persist to Supabase
-        skipped_customers = await loop.run_in_executor(
+        # Run insights + recommendation engine, then compute session metrics
+        pipeline_out = await loop.run_in_executor(
             None, lambda: _run_insights_pipeline(df_clean, user_id, upload_id)
         )
+        skipped_customers = pipeline_out.get("skipped", 0)
+        metrics = _build_metrics(df_clean, user_id, pipeline_out.get("segments"))
+        _user_sample_mode[user_id] = False
 
         # Update history: complete
         db_update("upload_history", {"id": upload_id}, {
@@ -776,7 +845,11 @@ async def v2_load_sample(_user: dict = Depends(require_auth)):
             None, lambda: _run_pipeline(content, "shopify_sample.csv", {}, 0)
         )
 
-        metrics = _build_metrics(df_clean, user_id)
+        sample_upload_id = f"sample-{user_id}"
+        pipeline_out = await loop.run_in_executor(
+            None, lambda: _run_insights_pipeline(df_clean, user_id, sample_upload_id)
+        )
+        metrics = _build_metrics(df_clean, user_id, pipeline_out.get("segments"))
         _user_sample_mode[user_id] = True
         uploaded_at = datetime.now(timezone.utc).isoformat()
 
@@ -884,7 +957,10 @@ async def v2_set_active(upload_id: str, _user: dict = Depends(require_auth)):
             None, lambda: _run_pipeline(content, filename, {}, 0)
         )
 
-        metrics = _build_metrics(df_clean, user_id)
+        pipeline_out = await loop.run_in_executor(
+            None, lambda: _run_insights_pipeline(df_clean, user_id, upload_id)
+        )
+        metrics = _build_metrics(df_clean, user_id, pipeline_out.get("segments"))
         _user_sample_mode[user_id] = False
 
         return _json_safe({

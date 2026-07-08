@@ -28,6 +28,26 @@ def _safe_div(num, den, default: float = 0.0) -> float:
         return default
 
 
+def _analysis_reference_date(df: pd.DataFrame, has_date: bool) -> pd.Timestamp:
+    """
+    Anchor recency flags to the uploaded dataset snapshot.
+
+    Uses the latest order date in the file (capped at today) so historical
+    exports are segmented as-of when the data ends — not wall-clock today.
+    Without dates, falls back to today.
+    """
+    today = pd.Timestamp.now().normalize()
+    if not has_date or "order_date" not in df.columns:
+        return today
+    valid = df["order_date"].dropna()
+    if valid.empty:
+        return today
+    data_end = pd.Timestamp(valid.max()).normalize()
+    if hasattr(data_end, "tz") and data_end.tz is not None:
+        data_end = data_end.tz_localize(None)
+    return min(today, data_end)
+
+
 # ── Public entry point ────────────────────────────────────────────────────────
 
 def build_customer_insights(
@@ -51,8 +71,6 @@ def build_customer_insights(
     if df.empty:
         return pd.DataFrame(), skipped
 
-    today = pd.Timestamp.now().normalize()
-
     # ── Column availability flags ─────────────────────────────────────────────
     has_date = "order_date" in df.columns
     has_total = "total" in df.columns
@@ -64,6 +82,10 @@ def build_customer_insights(
 
     if has_date:
         df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
+        if hasattr(df["order_date"].dtype, "tz") and df["order_date"].dtype.tz is not None:
+            df["order_date"] = df["order_date"].dt.tz_localize(None)
+
+    today = _analysis_reference_date(df, has_date)
 
     # ── Pre-compute per-row helper columns ───────────────────────────────────
     if has_discount:

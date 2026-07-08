@@ -791,3 +791,96 @@ Creates `customer_insights_cache` and `action_summary_cache` tables. One row per
 **Decision — snooze_upload_id comparison:** Snooze state stores the `upload_id` it was created for. When loading action groups, if `snooze_upload_id !== current_upload_id`, the snooze is considered expired (new data was uploaded). This gives true "snooze until next upload" semantics without a cron job or cleanup step.
 
 **Future (logged, not built):** Shareable read-only insight link per insight (auth-gated, expires 7 days) — to be built as a Supabase Edge Function generating a short-lived signed URL. See DECISION_LOG.md entry when implemented.
+
+---
+
+## 2026-07-08 — Recommendation Engine v1 architecture and strategic output layer
+
+**What changed:**
+
+Implemented a new recommendation system in `backend/services/` that replaces simple action lists with a structured, end-to-end decision pipeline designed for Shopify fashion brands.
+
+**New services and models introduced:**
+
+- **`backend/services/recommendation_models.py`** (new)  
+  Added strongly typed shared models for the full pipeline, including:
+  - Core recommendation entities: `Recommendation`, `Insight`, `RecommendationResult`, `ScoredRecommendation`
+  - Explanation and scoring entities: `RecommendationExplanation`, `RecommendationScore`
+  - Customer context entities: `CustomerProfile`, `BehaviourFlags`, `CustomerValue`, `DiscountBehaviour`, `ReturnBehaviour`, `PurchaseCadence`, `LifecycleStage`
+  - Weekly plan entities: `GrowthPlanAction`, `GrowthPlanSection`, `WeeklyGrowthPlan`
+  - Enums for categories, priority, channels, timing, effort, and impact
+
+- **`backend/services/recommendation_bank.py`** (new)  
+  Added a structured recommendation catalogue for Shopify fashion brands with 22 recommendations.  
+  Every recommendation includes `id`, `title`, `description`, `category`, `priority`, `timing`, `channel`, `lifecycle_stages`, `trigger_conditions`, `estimated_impact`, and `estimated_effort`.
+
+- **`backend/services/insight_bank.py`** (new)  
+  Added a structured portfolio insight catalogue with 25 insights across:
+  `Retention Risk`, `Revenue Opportunity`, `Discount Inefficiency`, `Loyalty`, `Cross Sell`, `Upsell`, `Inventory`, `Returns`, and `Customer Growth`.
+
+- **`backend/services/customer_profile_builder.py`** (new)  
+  Added conversion from customer row data into normalized `CustomerProfile` objects with derived lifecycle stage.
+
+- **`backend/services/decision_engine.py`** (new)  
+  Implemented multi-attribute recommendation matching:
+  - Evaluates lifecycle, segment context, behaviour flags, customer value, discount behaviour, return behaviour, and purchase cadence
+  - Uses explicit trigger operators (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`)
+  - Returns all matching recommendations without ranking
+
+- **`backend/services/scoring.py`** (new)  
+  Implemented ranking logic with component scores for:
+  - Urgency
+  - Business Impact
+  - Confidence
+  - Customer Value  
+  Produces weighted total score and sorts highest-first.
+
+- **`backend/services/explanation_engine.py`** (new)  
+  Implemented human-readable rationale generation for each recommendation:
+  - why selected
+  - supporting customer behaviour
+  - commercial importance
+  - expected outcome
+
+- **`backend/services/opportunity_score.py`** (new)  
+  Added 0-100 Opportunity Score based on:
+  - customer value
+  - urgency
+  - likelihood of conversion
+  - expected commercial impact
+
+- **`backend/services/weekly_growth_plan.py`** (new)  
+  Added aggregation layer that converts customer-level outputs into one business plan with four sections:
+  - Protect Revenue
+  - Grow Revenue
+  - Improve Margin
+  - Strengthen Loyalty  
+  Each section includes customer count, estimated commercial value, recommended actions, and supporting customer IDs.
+
+- **`backend/services/recommendation_engine.py`** (new)  
+  Wired the full orchestration pipeline:
+  Recommendation Bank → Decision Engine → Scoring → Explanation → Opportunity Score → Weekly Growth Plan.  
+  Added run methods for single customer, multiple customers, and row-based execution.
+
+- **`docs/RECOMMENDATION_ENGINE.md`** (new)  
+  Added full technical documentation covering architecture, flow, lifecycle, scoring, opportunity score, weekly plan design, and extension points.
+
+**Why this architecture was introduced:**
+
+The previous approach surfaced analytics and tactical suggestions but did not provide a unified commercial decision layer. The new architecture introduces a deterministic, extensible pipeline that converts customer behaviour into prioritized actions with explicit urgency and value-at-stake, making StrategiQ operational rather than descriptive.
+
+**Why recommendation data is separated from business logic:**
+
+Separating the catalogue (`recommendation_bank.py`, `insight_bank.py`) from execution logic (`decision_engine.py`, `scoring.py`, etc.) allows recommendations to evolve without rewriting engine code, improves testability, and keeps the matching/scoring pipeline stable as strategy content changes.
+
+**Why the Weekly Growth Plan became the primary output:**
+
+Merchants need one actionable plan per week, not fragmented metrics. The Weekly Growth Plan consolidates customer-level recommendations into clear commercial priorities (protect, grow, margin, loyalty), with counts and estimated value, so teams can execute immediately.
+
+**How this enables future AI-generated recommendations:**
+
+The current pipeline is structured around typed recommendation objects, trigger conditions, scores, and explanations. This creates a safe contract for future AI generation: AI can propose new recommendation templates/insights while deterministic engines still validate triggers, rank outputs, and present consistent explanations.
+
+**How this supports additional industries later:**
+
+Industry specifics are isolated in recommendation/insight catalogues and trigger semantics, while orchestration remains generic. To support another vertical, we can add a new catalogue and profile-mapping rules without replacing the core decision, scoring, explanation, opportunity, or weekly-plan engines.
