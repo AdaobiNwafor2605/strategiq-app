@@ -14,6 +14,7 @@ import { Dashboard } from './components/dashboard/Dashboard';
 import { DataUploadV2 } from './components/upload/DataUploadV2';
 import { Analytics } from './components/analytics/Analytics';
 import { PremiumFeatures } from './components/analytics/PremiumFeatures';
+import { GlossaryPage } from './components/glossary/GlossaryPage';
 import type { DashboardInsightsPayload } from './types';
 
 type Page =
@@ -28,11 +29,12 @@ type Page =
   | 'upload'
   | 'analytics'
   | 'premium'
-  | 'profile';
+  | 'profile'
+  | 'glossary';
 
 // 'onboarding' is intentionally omitted — it's only ever shown via explicit routing,
 // so logging out while on that screen should never set intendedPage = 'onboarding'
-const PROTECTED: Page[] = ['dashboard', 'upload', 'analytics', 'premium', 'profile'];
+const PROTECTED: Page[] = ['dashboard', 'upload', 'analytics', 'premium', 'profile', 'glossary'];
 
 const AppContent: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>('landing');
@@ -182,6 +184,7 @@ const AppContent: React.FC = () => {
             uploadedAt={uploadedAt}
             isSampleData={isSampleData}
             sessionInsights={dashboardInsights}
+            onNavigateToUpload={() => handleNavigate('upload')}
           />
         )}
 
@@ -217,6 +220,10 @@ const AppContent: React.FC = () => {
 
         {currentPage === 'premium' && (
           <PremiumFeatures onBackClick={() => handleNavigate('analytics')} />
+        )}
+
+        {currentPage === 'glossary' && (
+          <GlossaryPage onBack={() => handleNavigate('dashboard')} />
         )}
       </main>
     </div>

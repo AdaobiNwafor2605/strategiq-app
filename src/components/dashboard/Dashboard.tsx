@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
-  BarChart3, Users, TrendingUp, AlertCircle, Brain,
+  BarChart3, Users, TrendingUp, Brain,
   Target, DollarSign, ShoppingCart, Clock, Zap,
-  AlertTriangle, Download, Loader2,
+  AlertTriangle, Download, Loader2, Upload, Repeat, Trophy,
 } from 'lucide-react';
 import { supabase, useAuth } from '../../contexts/AuthContext';
 import { Card, CardHeader, CardContent } from '../ui/Card';
@@ -14,17 +14,21 @@ import { SegmentCard } from './SegmentCard';
 import { SegmentModal } from './SegmentModal';
 import { ActionsList } from './ActionsList';
 import { InsightBank } from './InsightBank';
+import { InfoTooltip } from '../ui/InfoTooltip';
+import { topCustomersBySpend } from '../../utils/customerFilters';
 import type { ActionGroup, ActionSummaryFull, BankInsight, DashboardInsightsPayload, InsightSegment } from '../../types';
 
 interface DashboardProps {
   uploadedAt?: string | null;
   isSampleData?: boolean;
   sessionInsights?: DashboardInsightsPayload | null;
+  onNavigateToUpload?: () => void;
   data: {
     total_revenue?: number;
     active_customers?: number;
     average_order_value?: number;
     churn_risk?: number;
+    repeat_purchase_rate?: number | null;
     revenue_forecast?: Array<{
       period: string;
       display_name: string;
@@ -41,6 +45,17 @@ interface DashboardProps {
     }>;
   } | null;
 }
+
+const METRIC_INFO = {
+  totalRevenue: 'The sum of every order in your uploaded data, before refunds.',
+  activeCustomers: 'The number of unique customers who placed at least one order in your uploaded data.',
+  aov: 'Average Order Value — total revenue divided by number of orders. Shows how much a typical order is worth.',
+  churnRisk: 'The share of your customers who are Lapsed (no order in 180+ days) or Going Quiet (overdue based on their own usual buying pattern). Based on the most recent order date in your uploaded data, not today’s date.',
+  repeatPurchaseRate: 'The share of your customers who have placed more than one order. A higher rate means more of your revenue is coming from repeat buyers rather than one-time purchases.',
+  revenueAtRisk: 'Estimated lifetime spend from customers who are Lapsed or overdue (Going Quiet) — revenue you stand to lose if they don’t come back.',
+  revenueOpportunity: 'Estimated revenue from new customers and one-time buyers who are in their window to make a second purchase.',
+  revenueForecast: 'A projection of future revenue based on your historical order pattern. The solid line is actual revenue; the dashed line is the model’s prediction.',
+};
 
 function freshnessLabel(iso: string): string {
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
@@ -74,6 +89,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   uploadedAt,
   isSampleData,
   sessionInsights,
+  onNavigateToUpload,
 }) => {
   const { user } = useAuth();
   const currency = user?.currency ?? 'GBP';
@@ -173,6 +189,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
         }
       } catch { /* silently skip */ }
 
+      // Fetch raw customer records (for the Top Customers table on returning visits,
+      // when there's no fresh upload response to draw from)
+      let nextCustomers: Record<string, unknown>[] = [];
+      try {
+        const custRes = await fetch('/api/insights/customers', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (custRes.ok) {
+          const custBody = await custRes.json();
+          if (custBody.success && custBody.data?.length > 0) {
+            nextCustomers = custBody.data;
+          }
+        }
+      } catch { /* silently skip */ }
+
       // Upload response fallbacks — same session data that powers segment cards
       if (nextSegments.length === 0) {
         nextSegments = segmentsFromProps(data?.customer_segments);
@@ -186,13 +217,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
       if (!nextUploadId && sessionInsights?.uploadId) {
         nextUploadId = sessionInsights.uploadId;
       }
+      if (nextCustomers.length === 0 && sessionInsights?.customers?.length) {
+        nextCustomers = sessionInsights.customers;
+      }
       if (!cancelled) {
         setSegments(nextSegments);
         setActionSummary(nextSummary);
         setBankInsights(nextInsights);
         setUploadId(nextUploadId);
-        if (sessionInsights?.customers?.length) {
-          setSessionCustomers(sessionInsights.customers);
+        if (nextCustomers.length > 0) {
+          setSessionCustomers(nextCustomers);
         }
       }
     }
@@ -233,10 +267,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return (
       <div className="p-6">
         <Card>
-          <CardContent className="p-6 text-center text-slate-600">
-            <AlertCircle className="w-12 h-12 mx-auto mb-4 text-slate-400" />
-            <h3 className="text-lg font-semibold mb-2">No Data Available</h3>
-            <p>Upload and process your data files to see analytics here.</p>
+          <CardContent className="p-10 text-center text-slate-600">
+            <BarChart3 className="w-14 h-14 mx-auto mb-4 text-purple-300" />
+            <h3 className="text-xl font-semibold text-slate-900 mb-2">No data yet</h3>
+            <p className="text-sm text-slate-500 max-w-sm mx-auto mb-6">
+              Upload your Shopify orders CSV to see revenue, customer segments, and
+              weekly actions — or try it first with sample data, no upload needed.
+            </p>
+            {onNavigateToUpload && (
+              <button
+                onClick={onNavigateToUpload}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-xl transition-colors"
+              >
+                <Upload className="w-4 h-4" />
+                Go to Upload
+              </button>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -259,6 +305,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const totalSegmentRevenue = segments.reduce((s, seg) => s + seg.total_revenue, 0);
   const totalSegmentCustomers = segments.reduce((s, seg) => s + seg.customers, 0);
+  const topCustomers = topCustomersBySpend(sessionCustomers, 10);
 
   const actionGroups: ActionGroup[] = actionSummary?.groups ?? [];
   const revenueAtRisk = actionSummary?.revenue_at_risk ?? 0;
@@ -301,7 +348,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <AlertTriangle className="w-5 h-5 text-red-600" />
               </div>
               <div>
-                <p className="text-xs text-red-600 font-medium uppercase tracking-wide">Revenue at Risk</p>
+                <p className="text-xs text-red-600 font-medium uppercase tracking-wide flex items-center gap-1">
+                  Revenue at Risk
+                  <InfoTooltip title="Revenue at Risk" text={METRIC_INFO.revenueAtRisk} className="text-red-300 hover:text-red-500" />
+                </p>
                 <p className="text-xl font-bold text-red-700">{formatCurrency(revenueAtRisk, currency)}</p>
                 <p className="text-xs text-red-500">Lapsed + at-risk customers</p>
               </div>
@@ -313,7 +363,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <TrendingUp className="w-5 h-5 text-green-600" />
               </div>
               <div>
-                <p className="text-xs text-green-600 font-medium uppercase tracking-wide">Revenue Opportunity</p>
+                <p className="text-xs text-green-600 font-medium uppercase tracking-wide flex items-center gap-1">
+                  Revenue Opportunity
+                  <InfoTooltip title="Revenue Opportunity" text={METRIC_INFO.revenueOpportunity} className="text-green-300 hover:text-green-500" />
+                </p>
                 <p className="text-xl font-bold text-green-700">{formatCurrency(revenueOpportunity, currency)}</p>
                 <p className="text-xs text-green-500">New + conversion-window buyers</p>
               </div>
@@ -323,12 +376,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {/* Header Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
         <Card className={!isAvailable(data.total_revenue) ? 'opacity-50' : ''}>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600">Total Revenue</p>
+                <p className="text-sm font-medium text-slate-600 flex items-center gap-1">
+                  Total Revenue
+                  <InfoTooltip title="Total Revenue" text={METRIC_INFO.totalRevenue} />
+                </p>
                 {isAvailable(data.total_revenue) ? (
                   <h3 className="text-2xl font-bold text-slate-900">
                     {formatCurrency(data.total_revenue!, currency)}
@@ -348,7 +404,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600">Active Customers</p>
+                <p className="text-sm font-medium text-slate-600 flex items-center gap-1">
+                  Active Customers
+                  <InfoTooltip title="Active Customers" text={METRIC_INFO.activeCustomers} />
+                </p>
                 {isAvailable(data.active_customers) ? (
                   <h3 className="text-2xl font-bold text-slate-900">
                     {data.active_customers!.toLocaleString()}
@@ -368,7 +427,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600">Average Order Value</p>
+                <p className="text-sm font-medium text-slate-600 flex items-center gap-1">
+                  Average Order Value
+                  <InfoTooltip title="Average Order Value" text={METRIC_INFO.aov} />
+                </p>
                 {isAvailable(data.average_order_value) ? (
                   <h3 className="text-2xl font-bold text-slate-900">
                     {formatCurrency(data.average_order_value!, currency)}
@@ -388,7 +450,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600">Churn Risk</p>
+                <p className="text-sm font-medium text-slate-600 flex items-center gap-1">
+                  Churn Risk
+                  <InfoTooltip title="Churn Risk" text={METRIC_INFO.churnRisk} />
+                </p>
                 {isAvailable(data.churn_risk) ? (
                   <h3 className="text-2xl font-bold text-slate-900">
                     {data.churn_risk!.toFixed(1)}%
@@ -396,9 +461,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 ) : (
                   <p className="text-sm text-slate-500">Not Available</p>
                 )}
+                <p className="text-xs text-slate-400 mt-0.5">Lapsed + overdue, based on your data</p>
               </div>
               <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
                 <TrendingUp className="w-6 h-6 text-amber-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className={!isAvailable(data.repeat_purchase_rate) ? 'opacity-50' : ''}>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-600 flex items-center gap-1">
+                  Repeat Purchase Rate
+                  <InfoTooltip title="Repeat Purchase Rate" text={METRIC_INFO.repeatPurchaseRate} />
+                </p>
+                {isAvailable(data.repeat_purchase_rate) ? (
+                  <h3 className="text-2xl font-bold text-slate-900">
+                    {data.repeat_purchase_rate!.toFixed(1)}%
+                  </h3>
+                ) : (
+                  <p className="text-sm text-slate-500">Not Available</p>
+                )}
+              </div>
+              <div className="w-12 h-12 bg-teal-100 rounded-lg flex items-center justify-center">
+                <Repeat className="w-6 h-6 text-teal-600" />
               </div>
             </div>
           </CardContent>
@@ -410,7 +499,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Revenue Forecast */}
         <Card className={forecastData.length === 0 ? 'opacity-50' : ''}>
           <CardHeader>
-            <h3 className="text-lg font-semibold text-slate-900">Revenue Forecast</h3>
+            <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-1.5">
+              Revenue Forecast
+              <InfoTooltip title="Revenue Forecast" text={METRIC_INFO.revenueForecast} />
+            </h3>
             <p className="text-sm text-slate-600">Actual vs Predicted performance</p>
           </CardHeader>
           <CardContent>
@@ -503,6 +595,56 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </CardContent>
         </Card>
       </div>
+
+      {/* Top 10 Customers by Spend */}
+      {topCustomers.length > 0 && (
+        <Card>
+          <CardHeader>
+            <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+              <Trophy className="w-5 h-5 text-amber-500" />
+              Top 10 Customers by Spend
+            </h3>
+            <p className="text-sm text-slate-500 mt-0.5">Who your biggest fans are, and what to do next with them</p>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-slate-500 border-b border-slate-100">
+                    <th className="py-2 pr-3 font-semibold">Customer</th>
+                    <th className="py-2 pr-3 font-semibold text-right">Total Spent</th>
+                    <th className="py-2 pr-3 font-semibold text-right hidden sm:table-cell">Orders</th>
+                    <th className="py-2 pr-3 font-semibold hidden md:table-cell">Recommended Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {topCustomers.map((c, i) => (
+                    <tr key={i} className="hover:bg-slate-50/50">
+                      <td className="py-2.5 pr-3 text-slate-700 truncate max-w-[180px]">
+                        <span className="inline-flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-amber-50 text-amber-700 text-[11px] font-semibold flex items-center justify-center shrink-0">
+                            {i + 1}
+                          </span>
+                          {c.email_or_id}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-semibold text-slate-800">
+                        {formatCurrency(c.total_revenue, currency)}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right text-slate-500 hidden sm:table-cell">
+                        {c.order_count}
+                      </td>
+                      <td className="py-2.5 pr-3 text-slate-500 hidden md:table-cell truncate max-w-[260px]">
+                        {c.recommended_action || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* This Week's Customer Actions */}
       <Card>

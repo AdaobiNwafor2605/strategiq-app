@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { BarChart, Upload, LayoutDashboard, Crown, User } from 'lucide-react';
+import { BarChart, Upload, LayoutDashboard, Crown, User, HelpCircle } from 'lucide-react';
 
 interface HeaderProps {
   currentPage: string;
@@ -56,6 +56,15 @@ export const Header: React.FC<HeaderProps> = ({ currentPage, onNavigate }) => {
           <div className="flex items-center gap-1">
             {user && (
               <>
+                <button
+                  onClick={() => onNavigate('glossary')}
+                  title="Glossary — what do these terms mean?"
+                  className={`inline-flex items-center justify-center w-9 h-9 rounded-md transition-colors ${
+                    currentPage === 'glossary' ? 'bg-purple-100 text-purple-700' : 'text-slate-500 hover:bg-slate-100'
+                  }`}
+                >
+                  <HelpCircle className="w-4 h-4" />
+                </button>
                 <button
                   onClick={() => onNavigate('profile')}
                   className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${

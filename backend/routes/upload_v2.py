@@ -38,6 +38,7 @@ from services.recommendation_serializer import (
     growth_plan_to_action_groups,
     serialize_weekly_growth_plan,
 )
+from services.raw_data_cache import save_raw_dataframe
 from services.supabase_service import (
     db_insert, db_select, db_delete, db_upsert, db_update,
     storage_upload, storage_delete, storage_download,
@@ -337,16 +338,47 @@ def _run_pipeline(
     return cleaner.clean_dataframe(df, column_mappings), encoding_used
 
 
-def _build_metrics(df_clean: pd.DataFrame, user_id: str, segments: Optional[List[Dict]] = None) -> Dict:
-    """Store cleaned df in shared state and compute analytics metrics."""
-    _user_data[user_id] = df_clean
+def _build_metrics(
+    df_clean: pd.DataFrame,
+    user_id: str,
+    upload_id: str,
+    segments: Optional[List[Dict]] = None,
+    customers: Optional[List[Dict]] = None,
+) -> Dict:
+    """Store cleaned df (memory + Supabase) and compute analytics metrics."""
+    save_raw_dataframe(user_id, upload_id, df_clean)
     analytics = AnalyticsService(df_clean)
     metrics = analytics.compute_metrics()
+
+    # AnalyticsService's churn risk uses wall-clock "today" and a 60-day
+    # threshold, disconnected from the 180-day is_lapsed logic everywhere
+    # else — it reads ~100% on historical data. Segments are already
+    # date-anchored to the dataset's own reference date, so derive churn
+    # risk from them instead: Lapsed (already gone) + Going Quiet (overdue).
+    churn_risk = metrics.churn_risk_percentage
+    if segments:
+        total_seg_customers = sum(int(s.get("customers", 0)) for s in segments)
+        at_risk_customers = sum(
+            int(s.get("customers", 0))
+            for s in segments
+            if s.get("name") in ("Lapsed", "Going Quiet")
+        )
+        if total_seg_customers > 0:
+            churn_risk = round(at_risk_customers / total_seg_customers * 100, 1)
+
+    repeat_purchase_rate = None
+    if customers:
+        total_customers = len(customers)
+        if total_customers > 0:
+            repeat = sum(1 for c in customers if c.get("is_repeat_customer"))
+            repeat_purchase_rate = round(repeat / total_customers * 100, 1)
+
     return _json_safe({
         "total_revenue": metrics.total_revenue,
         "active_customers": metrics.active_customers,
         "average_order_value": metrics.avg_order_value,
-        "churn_risk": metrics.churn_risk_percentage,
+        "churn_risk": churn_risk,
+        "repeat_purchase_rate": repeat_purchase_rate,
         "revenue_forecast": metrics.revenue_forecast,
         # Lifecycle segments (VIPs, Regulars, …) come from the recommendation-engine
         # pipeline — never the legacy RFM segments from AnalyticsService.
@@ -811,7 +843,7 @@ async def v2_process(
             None, lambda: _run_insights_pipeline(df_clean, user_id, upload_id)
         )
         skipped_customers = pipeline_out.get("skipped", 0)
-        metrics = _build_metrics(df_clean, user_id, pipeline_out.get("segments"))
+        metrics = _build_metrics(df_clean, user_id, upload_id, pipeline_out.get("segments"), pipeline_out.get("customers"))
         _user_sample_mode[user_id] = False
 
         # Update history: complete
@@ -872,7 +904,7 @@ async def v2_load_sample(_user: dict = Depends(require_auth)):
         pipeline_out = await loop.run_in_executor(
             None, lambda: _run_insights_pipeline(df_clean, user_id, sample_upload_id)
         )
-        metrics = _build_metrics(df_clean, user_id, pipeline_out.get("segments"))
+        metrics = _build_metrics(df_clean, user_id, sample_upload_id, pipeline_out.get("segments"), pipeline_out.get("customers"))
         _user_sample_mode[user_id] = True
         uploaded_at = datetime.now(timezone.utc).isoformat()
 
@@ -989,7 +1021,7 @@ async def v2_set_active(upload_id: str, _user: dict = Depends(require_auth)):
         pipeline_out = await loop.run_in_executor(
             None, lambda: _run_insights_pipeline(df_clean, user_id, upload_id)
         )
-        metrics = _build_metrics(df_clean, user_id, pipeline_out.get("segments"))
+        metrics = _build_metrics(df_clean, user_id, upload_id, pipeline_out.get("segments"), pipeline_out.get("customers"))
         _user_sample_mode[user_id] = False
 
         return _json_safe({

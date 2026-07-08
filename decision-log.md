@@ -1051,3 +1051,68 @@ Left `_assign_action` in place — its output is now fully overwritten downstrea
 **Why in-memory session state is enough (no frontend change needed):** `Dashboard.tsx` already passes the just-uploaded data down as `sessionInsights` and only lets a subsequent `GET /api/insights/segments` / `/action-summary` / `/bank` override it when that call succeeds. Since those endpoints now check `_user_session_insights` (populated synchronously at the end of the same upload request, before Supabase) before ever touching the database, they return fresh data immediately, so the fresh upload response is no longer clobbered — without touching frontend data-fetching logic.
 
 **Known limitation:** `_user_session_insights` is process-local. If the backend ever runs multiple worker processes, an upload handled by one worker won't be visible in another worker's memory, and reads would fall back to Supabase (which is still correct, just without the same-process fast path). This matches the existing pattern for `_user_data`/`_user_sample_mode` and wasn't introduced by this fix.
+
+---
+
+## 2026-07-08 — Dashboard gap-fixing pass: Churn Risk bug, tooltips, Repeat Purchase Rate, Top Customers, empty state, glossary
+
+**What changed:** A focused, "ship fast" pass fixing genuine gaps and bugs identified in a dashboard review, scoped deliberately tight (explicitly excluding data-freshness wording, the "what changed" summary, revenue-over-time on the main dashboard, and renaming Advanced Analytics — those were left for a later pass).
+
+**1. Churn Risk showing 100% (real bug, not a design issue):**
+
+- `backend/services/analytics.py::_calculate_churn_risk()` used wall-clock "today" and a hardcoded 60-day threshold, completely disconnected from the 180-day `is_lapsed` logic used everywhere else in the app (see the 2026-07-08 "Lifecycle segment rules" entry above) — on historical/test data this reads close to 100%.
+- Fix: `backend/routes/upload_v2.py::_build_metrics()` now derives `churn_risk` from the already date-anchored lifecycle segments instead — `(Lapsed + Going Quiet customers) / total customers`. `AnalyticsService` itself was left untouched (still called for total revenue, active customers, AOV, and forecast, which weren't reported as broken); only its churn figure is discarded and replaced.
+- `src/components/dashboard/Dashboard.tsx` — Churn Risk card now shows "Lapsed + overdue, based on your data" under the number for context.
+
+**2. No tooltips on any metric:**
+
+- New `src/components/ui/InfoTooltip.tsx` — a reusable "?" icon (portal-rendered, so it's never clipped by a card), adapted from the tooltip pattern already used in `SegmentCard.tsx`.
+- Attached to all 5 headline cards, Revenue at Risk, Revenue Opportunity, and the Revenue Forecast chart header in `Dashboard.tsx`, each with a plain-English explanation.
+
+**3. Repeat Purchase Rate was missing:**
+
+- `backend/routes/upload_v2.py::_build_metrics()` now also accepts the pipeline's per-customer records and computes `repeat_purchase_rate` from the existing `is_repeat_customer` flag (customers with 2+ orders ÷ total customers).
+- Added as a 5th headline card (kept alongside Churn Risk rather than replacing it, since Churn Risk is now a correct, useful metric) — headline grid changed from a fixed 4-column layout to a responsive 1/2/5-column grid.
+
+**4. Top 10 Customers by spend table was missing:**
+
+- New card in `Dashboard.tsx` between the charts row and "This Week's Customer Actions", showing rank, customer, total spent, order count, and their recommended action.
+- Sourced client-side from customer records already in the session (new `topCustomersBySpend()` helper in `src/utils/customerFilters.ts`) — no new backend endpoint needed.
+- Added a `/api/insights/customers` fetch fallback in `Dashboard.tsx`'s data-loading effect so the table (and any other session-customer-dependent UI) is populated reliably for returning users, not only right after a fresh upload.
+
+**5. Empty state was untested and bare:**
+
+- Replaced the plain "No Data Available" card with clearer copy and a "Go to Upload" button. Added an `onNavigateToUpload` prop to `Dashboard`, wired from `App.tsx`.
+
+**6. No in-app glossary:**
+
+- New `src/components/glossary/GlossaryPage.tsx` — plain-English definitions grouped by Customer Segments, Headline Metrics, Revenue & Opportunity, and Weekly Growth Plan sections.
+- Wired into `App.tsx` as a new `'glossary'` page (added to the `Page` type and `PROTECTED` list, per the app's state-based navigation — no router introduced).
+- A "?" icon was added to `Header.tsx`, visible on every protected page, linking to the glossary.
+
+**Why option A (tight scope) over the fuller list:** the reviewer's fuller list also included data-freshness wording beyond "Uploaded today", a changed-since-last-upload summary (which — on inspection — already exists as the purple "What changed" banner in `Dashboard.tsx`, wired from `action_summary.what_changed`), revenue-over-time as a main-dashboard headline, and renaming "Advanced Analytics". Those were deliberately deferred to keep this pass shippable in one sitting.
+
+---
+
+## 2026-07-08 — Fix: Advanced Analytics showing "No data available" after a backend restart; deleted orphaned analytics router
+
+**What was broken (found while investigating a screenshot showing Churn Risk stuck at 100% and Revenue Over Time / Top Products / AOV Trends all reading "No data available" on the Advanced Analytics page):**
+
+Two separate, unrelated issues surfaced together:
+
+1. **Churn Risk 100% was stale browser state, not a live bug.** `Analytics.tsx` and `Dashboard.tsx` both read `churn_risk` from the same `dashboardData` object in `App.tsx` — it's computed once at upload time and cached in the browser, not recalculated on page navigation. A screenshot taken before the next upload/sample-reload after the Churn Risk fix would still show the old value on both pages equally.
+2. **The "No data available" panels were a real, pre-existing bug**, unrelated to anything built in this session. `/api/analytics/top-products`, `/revenue-trends`, and `/aov-trends` (defined directly in `backend/main.py`) read the cleaned order-level DataFrame from `_user_data[user_id]` — a plain in-memory Python dict with no persistence backing. Every backend restart wipes it, and unlike the recommendation-engine pipeline's caches (`customer_insights_cache`, `action_summary_cache`, `insights_cache`, all Supabase-backed), nothing repopulated it afterward except a fresh upload.
+
+**Also found:** `backend/routes/analytics.py` was fully dead code — a near-duplicate set of `/api/analytics/*` endpoints reading from a different, never-populated singleton (`services/file_processor.py`'s `file_processor.sales_data`). It was never mounted via `app.include_router` in `main.py`; the real, live endpoints are the ones defined inline in `main.py` itself.
+
+**What changed:**
+
+- **`supabase/migrations/20260708_raw_data_cache.sql`** (new) — `raw_data_cache` table, one JSONB row per user (`UNIQUE(user_id)`), same RLS pattern as the other cache tables (owner read/write, service-role bypass, cascade-deleted with the auth user).
+- **`backend/services/raw_data_cache.py`** (new) — `save_raw_dataframe(user_id, upload_id, df)` writes to both `_user_data` (fast path) and Supabase; `load_raw_dataframe(user_id)` checks `_user_data` first, falls back to Supabase on a cold process, and re-warms the in-memory cache so subsequent requests in that process skip the round-trip.
+- **`backend/routes/upload_v2.py`** — `_build_metrics()` now takes `upload_id` and calls `save_raw_dataframe()` instead of setting `_user_data[user_id]` directly; all 3 call sites updated to pass the correct upload/sample upload id.
+- **`backend/main.py`** — all 9 read sites across the analytics endpoints (`top-products`, `revenue-trends`, `aov-trends`, `customer-analysis`, `geographic-analysis`, `order-volume-trends`, `revenue-per-customer`, `data-insights-check`) now call `load_raw_dataframe(user_id)` instead of reading `_user_data` directly.
+- **`backend/routes/analytics.py`** — deleted (confirmed unused: not imported or mounted anywhere).
+
+**Why not touch `backend/routes/upload.py` (the legacy v1 upload route) in the same pass:** it's also unmounted dead code by the same pattern, but it wasn't named in this fix — left for a separate, explicitly-scoped cleanup.
+
+**Known limitation carried over:** same as `_user_session_insights` — `_user_data` (and now its Supabase backing) is still looked up per-process; on a multi-worker deployment a cold worker falls back to Supabase correctly, just without the same-process fast path. Not a regression introduced here.

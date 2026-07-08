@@ -62,6 +62,16 @@ export function toActionCustomer(customer: Record<string, unknown>): ActionCusto
   };
 }
 
+export function topCustomersBySpend(
+  customers: Record<string, unknown>[],
+  limit = 10,
+): SegmentCustomer[] {
+  return customers
+    .map(toSegmentCustomer)
+    .sort((a, b) => b.total_revenue - a.total_revenue)
+    .slice(0, limit);
+}
+
 export function filterCustomersBySegment(
   customers: Record<string, unknown>[],
   segmentName: string,

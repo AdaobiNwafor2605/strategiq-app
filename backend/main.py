@@ -42,6 +42,7 @@ from utils.validators import REQUIRED_COLUMNS, validate_dataframes, find_matchin
 from services.data_cleaner import DataCleaner
 from services.analytics import AnalyticsService
 from services.file_processor import file_processor
+from services.raw_data_cache import load_raw_dataframe
 from core_config import validate_core_config, CORE_VERSION
 
 # Shared auth and state (imported here so the v2 router can import without circular refs)
@@ -212,7 +213,7 @@ async def get_top_products(
     """Get top products by revenue or volume"""
     try:
         user_id = _user.get('sub', '')
-        df = _user_data.get(user_id)
+        df = load_raw_dataframe(user_id)
         if df is None:
             return {"error": "No sales data available", "data": []}
         if 'product_name' not in df.columns or 'total' not in df.columns:
@@ -266,7 +267,7 @@ async def get_revenue_trends(
     """Get revenue trends over time"""
     try:
         user_id = _user.get('sub', '')
-        df = _user_data.get(user_id)
+        df = load_raw_dataframe(user_id)
         if df is None:
             return {"error": "No sales data available", "data": []}
         if 'order_date' not in df.columns or 'total' not in df.columns:
@@ -320,7 +321,7 @@ async def get_aov_trends(
     """Get Average Order Value trends"""
     try:
         user_id = _user.get('sub', '')
-        df = _user_data.get(user_id)
+        df = load_raw_dataframe(user_id)
         if df is None:
             return {"error": "No sales data available", "data": []}
         if 'order_date' not in df.columns or 'total' not in df.columns or 'order_id' not in df.columns:
@@ -373,7 +374,7 @@ async def get_customer_analysis(
     """Analyze returning vs new customers"""
     try:
         user_id = _user.get('sub', '')
-        df = _user_data.get(user_id)
+        df = load_raw_dataframe(user_id)
         if df is None:
             return {"error": "No sales data available", "data": []}
         # Accept either customer_email (Shopify) or customer_id (non-Shopify datasets)
@@ -447,7 +448,7 @@ async def get_geographic_analysis(
     """Get geographic distribution of customers (if location data is available)"""
     try:
         user_id = _user.get('sub', '')
-        df = _user_data.get(user_id)
+        df = load_raw_dataframe(user_id)
         if df is None:
             return {"error": "No sales data available", "data": []}
         
@@ -512,7 +513,7 @@ async def get_order_volume_trends(
     """Get order volume trends (number of items per order over time)"""
     try:
         user_id = _user.get('sub', '')
-        df = _user_data.get(user_id)
+        df = load_raw_dataframe(user_id)
         if df is None:
             return {"error": "No sales data available", "data": []}
         
@@ -584,7 +585,7 @@ async def get_revenue_per_customer(
     """Get detailed revenue per customer analysis with segmentation"""
     try:
         user_id = _user.get('sub', '')
-        df = _user_data.get(user_id)
+        df = load_raw_dataframe(user_id)
         if df is None:
             return {"error": "No sales data available", "data": []}
         
@@ -695,7 +696,8 @@ async def check_data_insights_availability(
     """Check if your data supports repeat purchase behavior and basket trends analysis"""
     try:
         user_id = _user.get('sub', '')
-        if _user_data.get(user_id) is None:
+        df = load_raw_dataframe(user_id)
+        if df is None:
             return {
                 "error": "No sales data available",
                 "message": "Please upload your data files first to see what advanced features are available.",
@@ -719,8 +721,7 @@ async def check_data_insights_availability(
                     "unique_products": 0
                 }
             }
-        
-        df = _user_data[user_id]
+
         columns = list(df.columns)
 
         analysis_results = {
