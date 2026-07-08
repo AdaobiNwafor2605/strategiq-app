@@ -58,13 +58,13 @@ def require_auth(authorization: str = Header(...)) -> dict:
             if _jwks_key is None:
                 _load_jwks_key()
             if _jwks_key is None:
-                logger.warning("JWKS key unavailable — skipping auth check.")
-                return {}
+                logger.warning("JWKS key unavailable — using unverified claims for local dev.")
+                return jwt.get_unverified_claims(token)
             payload = jwt.decode(token, _jwks_key, algorithms=[alg], audience="authenticated")
         else:
             if not _JWT_SECRET:
-                logger.warning("SUPABASE_JWT_SECRET not set — skipping auth check.")
-                return {}
+                logger.warning("SUPABASE_JWT_SECRET not set — using unverified claims for local dev.")
+                return jwt.get_unverified_claims(token)
             payload = jwt.decode(token, _JWT_SECRET, algorithms=["HS256"], audience="authenticated")
 
         return payload
