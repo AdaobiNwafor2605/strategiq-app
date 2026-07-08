@@ -17,6 +17,25 @@ Transform your Shopify data into actionable insights with AI-powered recommendat
 
 ## Setup Instructions
 
+### Cross-editor backend workflow
+
+This project uses a local Python virtual environment in the project root, so the backend should be started the same way in VS Code, Cursor, or the terminal.
+
+1. From the project root, run:
+   ```bash
+   ./scripts/setup-backend.sh
+   ```
+2. Start the backend with:
+   ```bash
+   ./scripts/start-backend.sh
+   ```
+3. Open the API docs at:
+   ```text
+   http://127.0.0.1:8000/docs
+   ```
+
+If you switch between editors, keep using the same project folder and the same scripts. That keeps the Python environment, dependencies, and startup command synced.
+
 ### Prerequisites
 
 - Node.js (v16 or higher)
