@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+if [ ! -f "$ROOT_DIR/backend/.env" ]; then
+  echo "backend/.env not found. Run ./scripts/setup-env.sh first." >&2
+  exit 1
+fi
+
 if [ ! -x "$ROOT_DIR/.venv/bin/python" ]; then
   echo "Virtual environment not found. Run scripts/setup-backend.sh first." >&2
   exit 1
